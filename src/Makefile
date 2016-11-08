@@ -26,4 +26,4 @@ $(BWGATED): $(BWGATEDOBJS)
 	$(CC) -D$(MDEF) $(INCDIR) $(FLAGS) -c $< -o $@
 
 clean:
-	-rm -f  $(BWGATED) *.elf *.gdb *.o *.a *.so
+	-rm -f  $(BWGATED) $(BWGATEDOBJS) *.elf *.gdb *.o *.a *.so
