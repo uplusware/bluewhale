@@ -18,10 +18,11 @@ string bwgate_base::m_encoding = "UTF-8";
 string bwgate_base::m_localhostname = "uplusware.com";
 string bwgate_base::m_hostip = "";
 
-unsigned int bwgate_base::m_runtime = 0;
+unsigned int bwgate_base::m_concurrent_conn = 20480;
 string	bwgate_base::m_config_file = CONFIG_FILE_PATH;
 string	bwgate_base::m_permit_list_file = PERMIT_FILE_PATH;
 string	bwgate_base::m_reject_list_file = REJECT_FILE_PATH;
+
 string	bwgate_base::m_service_list_file = SERVICE_LIST_FILE_PATH;
 string	bwgate_base::m_backend_list_file = BACKEND_LIST_FILE_PATH;
 
@@ -79,6 +80,14 @@ BOOL bwgate_base::LoadConfig()
 				strtrim(m_hostip);
 				/* printf("[%s]\n", m_hostip.c_str()); */
 			}
+            else if(strncasecmp(strline.c_str(), "CocurrentConnect", strlen("CocurrentConnect")) == 0)
+			{
+                string concurrent_conn;
+				strcut(strline.c_str(), "=", NULL, concurrent_conn );
+				strtrim(concurrent_conn);
+                m_concurrent_conn = atoi(concurrent_conn.c_str());
+				/* printf("[%d]\n", m_concurrent_conn); */
+			}
 			else
 			{
 				/* printf("%s\n", strline.c_str()); */
@@ -91,8 +100,6 @@ BOOL bwgate_base::LoadConfig()
 
 	_load_permit_();
 	_load_reject_();
-
-	m_runtime = time(NULL);
     
 	return TRUE;
 }
@@ -103,7 +110,7 @@ BOOL bwgate_base::LoadAccessList()
 	sem_t* plock = NULL;
 	///////////////////////////////////////////////////////////////////////////////
 	// GLOBAL_REJECT_LIST
-	plock = sem_open("/.GLOBAL_REJECT_LIST.sem", O_CREAT | O_RDWR, 0644, 1);
+	plock = sem_open("/.BWGATED_GLOBAL_REJECT_LIST.sem", O_CREAT | O_RDWR, 0644, 1);
 	if(plock != SEM_FAILED)
 	{
 		sem_wait(plock);
@@ -115,7 +122,7 @@ BOOL bwgate_base::LoadAccessList()
 	}
 	/////////////////////////////////////////////////////////////////////////////////
 	// GLOBAL_PERMIT_LIST
-	plock = sem_open("/.GLOBAL_PERMIT_LIST.sem", O_CREAT | O_RDWR, 0644, 1);
+	plock = sem_open("/.BWGATED_GLOBAL_PERMIT_LIST.sem", O_CREAT | O_RDWR, 0644, 1);
 	if(plock != SEM_FAILED)
 	{
 		sem_wait(plock);
@@ -163,7 +170,7 @@ void bwgate_base::_load_reject_()
 		{
 			stReject sr;
 			sr.ip = strline;
-			sr.expire = 0xFFFFFFFF;
+			sr.expire = 0xFFFFFFFFU;
 			m_reject_list.push_back(sr);
 		}
 	}

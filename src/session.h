@@ -18,7 +18,7 @@
 
 typedef enum
 {
-	stHTTP = 1,
+	stGATE = 1,
 } Service_Type;
 
 typedef struct{
@@ -32,16 +32,14 @@ class Session
 protected:
 	int m_sockfd;
     int m_back_sockfd;
-    SSL * m_ssl;
 	string m_clientip;
-    X509* m_client_cert;
     
     list<buf_desc*> m_client_bufs;
     list<buf_desc*> m_backend_bufs;
     
     unsigned long m_use_count;
 public:
-	Session(int sockfd, SSL* ssl, const char* clientip, X509* client_cert, const char* backhost_ip, unsigned short backhost_port);
+	Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port);
 	virtual ~Session();
     
     int get_backsockfd() { return m_back_sockfd; }

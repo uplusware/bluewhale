@@ -27,8 +27,8 @@
 static char LOGNAME[256] = "/var/log/bwgated/service.log";
 static char LCKNAME[256] = "/.bwgated_sys.lock";
 
-static const char* SVR_NAME_TBL[] = {NULL, "Bluewhale", NULL};
-static const char* SVR_DESP_TBL[] = {NULL, "Blue whale", NULL};
+static const char* SVR_NAME_TBL[] = {NULL, "bwgated", NULL};
+static const char* SVR_DESP_TBL[] = {NULL, "bwgated", NULL};
 
 #define write_lock(fd, offset, whence, len) lock_reg(fd, F_SETLK, F_WRLCK, offset, whence, len)   
 
@@ -172,7 +172,7 @@ typedef struct
 {
 	string ip;
 	unsigned short port;
-}backhost_t;
+}backend_host_t;
 
 class Service
 {
@@ -194,14 +194,14 @@ protected:
 	mqd_t m_service_qid;
 	sem_t* m_service_sid;
 	string m_service_name;
-	int m_sockfd;
-    int m_sockfd_ssl;
-	int m_ctrl_fd;
+
 	Service_Type m_st;
 	map<int, service_content_t> m_service_list;
-    map<int, Session*> m_session_list;
-    map<int, Session*> m_backend_list;
-    vector<backhost_t> m_backend_host_list;
+    
+    map<int, Session*> m_session_list; //connect with client
+    map<int, Session*> m_backend_list; //connect with backend server
+    
+    vector<backend_host_t> m_backend_host_list;
         
     unsigned int m_next_process;
 };

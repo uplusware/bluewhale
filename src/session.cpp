@@ -5,13 +5,11 @@
 
 #include "session.h"
 
-Session::Session(int sockfd, SSL* ssl, const char* clientip, X509* client_cert, const char* backhost_ip, unsigned short backhost_port)
+Session::Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port)
 {
     m_use_count = 0;
     m_sockfd = sockfd;
-    m_ssl = ssl;
 	m_clientip = clientip;
-	m_client_cert = client_cert;
     
     m_back_sockfd = -1;
     
@@ -42,7 +40,7 @@ Session::Session(int sockfd, SSL* ssl, const char* clientip, X509* client_cert, 
        throw(new string("getaddrinfo error"));
        return;
     }
-    //printf("%s:%d\n", backhost_ip, backhost_port);
+    
     for (rp = server_addr; rp != NULL; rp = rp->ai_next)
     {
        m_back_sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
@@ -53,7 +51,6 @@ Session::Session(int sockfd, SSL* ssl, const char* clientip, X509* client_cert, 
 	    fcntl(m_back_sockfd, F_SETFL, flags | O_NONBLOCK);
 	
         connect(m_back_sockfd, rp->ai_addr, rp->ai_addrlen);
-        
         break;
     }
 
@@ -90,43 +87,52 @@ Session::~Session()
 
 int Session::recv_from_client()
 {
-    buf_desc * bd = new buf_desc;
-    bd->len = recv(m_sockfd, bd->buf, 4096, 0);
-    //printf("recv_from_client: %d\n", bd->len);
-    if(bd->len > 0)
+    if(m_client_bufs.size() < 10)
     {
-        
-        bd->cur = 0;
-        m_client_bufs.push_back(bd);
-        send_to_backend();
-        return bd->len;
+        buf_desc * bd = new buf_desc;
+        bd->len = recv(m_sockfd, bd->buf, 4096, 0);
+        //printf("recv_from_client: %d\n", bd->len);
+        if(bd->len > 0)
+        {
+            
+            bd->cur = 0;
+            m_client_bufs.push_back(bd);
+            send_to_backend();
+            return bd->len;
+        }
+        else
+        {
+            delete bd;
+            return -1;
+        }
     }
     else
-    {
-        delete bd;
-        return -1;
-    }
+        send_to_backend();
+    return 0;
 }
 
 int Session::recv_from_backend()
 {
-    
-    buf_desc * bd = new buf_desc;
-    bd->len = recv(m_back_sockfd, bd->buf, 4096, 0);
-    //printf("recv_from_backend: %d\n", bd->len);
-    if(bd->len > 0)
+    if(m_backend_bufs.size() < 10)
     {
-        
-        bd->cur = 0;
-        m_backend_bufs.push_back(bd);
-        send_to_client();
-        return bd->len;
+        buf_desc * bd = new buf_desc;
+        bd->len = recv(m_back_sockfd, bd->buf, 4096, 0);
+        //printf("recv_from_backend: %d\n", bd->len);
+        if(bd->len > 0)
+        {
+            bd->cur = 0;
+            m_backend_bufs.push_back(bd);
+            send_to_client();
+            return bd->len;
+        }
+        else
+        {
+            delete bd;
+            return -1;
+        }
     }
     else
-    {
-        delete bd;
-        return -1;
-    }
+        send_to_client();
 }
 
 int Session::send_to_client()

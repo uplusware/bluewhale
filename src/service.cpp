@@ -47,8 +47,6 @@ static void CLEAR_QUEUE(mqd_t qid)
 //Service
 Service::Service(Service_Type st)
 {
-	m_sockfd = -1;
-    m_sockfd_ssl = -1;
 	m_st = st;
 	m_service_name = SVR_NAME_TBL[m_st];
 }
@@ -405,7 +403,7 @@ int Service::Run(int fd)
     
     int epoll_fd;
     struct epoll_event event;  
-    struct epoll_event *events = new struct epoll_event[MAXEVENTS]; 
+    struct epoll_event *events = new struct epoll_event[bwgate_base::m_concurrent_conn > MAXEVENTS ? MAXEVENTS : bwgate_base::m_concurrent_conn]; 
         
 	while(!svr_exit)
 	{
@@ -462,11 +460,11 @@ int Service::Run(int fd)
             {
                 if(pChildNode && pChildNode->ToElement())
                 {        
-                    backhost_t back_host;
+                    backend_host_t backend_host;
                     
-                    back_host.ip = pChildNode->ToElement()->Attribute("ip");
-                    back_host.port = atoi(pChildNode->ToElement()->Attribute("port"));
-                    m_backend_host_list.push_back(back_host);
+                    backend_host.ip = pChildNode->ToElement()->Attribute("ip");
+                    backend_host.port = atoi(pChildNode->ToElement()->Attribute("port"));
+                    m_backend_host_list.push_back(backend_host);
                 }
                 pChildNode = pChildNode->NextSibling("backend");
             }
@@ -533,7 +531,7 @@ int Service::Run(int fd)
             
             int n, i;  
   
-            n = epoll_wait (epoll_fd, events, MAXEVENTS, 1000);
+            n = epoll_wait (epoll_fd, events, bwgate_base::m_concurrent_conn > MAXEVENTS ? MAXEVENTS : bwgate_base::m_concurrent_conn, 1000);
             
             for (i = 0; i < n; i++)  
             {  
@@ -565,7 +563,7 @@ int Service::Run(int fd)
                     }
                     
                     try {
-                        Session * p_session = new Session(clt_sockfd, NULL, client_ip.c_str(), NULL, backhost_ip.c_str(), backhost_port);
+                        Session * p_session = new Session(clt_sockfd, client_ip.c_str(), backhost_ip.c_str(), backhost_port);
                         
                         p_session->accquire();
                         map<int, Session*>::iterator iter = m_session_list.find(clt_sockfd);
@@ -733,6 +731,13 @@ int Service::Run(int fd)
 		}
 	}
     delete[] events;
+    close(epoll_fd);
+    
+    map<int, service_content_t>::iterator it;
+    for(it = m_service_list.begin(); it != m_service_list.end(); ++it)
+    {
+        close(it->first);
+    }
 	free(queue_buf_ptr);
 	if(m_service_qid != (mqd_t)-1)
 		mq_close(m_service_qid);

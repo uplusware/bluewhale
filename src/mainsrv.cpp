@@ -43,8 +43,8 @@ static void daemon_init()
 	chdir("/");
 	umask(0);
 	close(STDIN_FILENO);
-	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
+//	close(STDOUT_FILENO);
+//	close(STDERR_FILENO);
 }
 
 char PIDFILE[256] = "/tmp/bwgated/bwgated.pid";
@@ -67,16 +67,16 @@ static int Run()
         if(http_pid == 0)
         {
             char szFlag[128];
-            sprintf(szFlag, "/tmp/bwgated/%s.pid", SVR_NAME_TBL[stHTTP]);
+            sprintf(szFlag, "/tmp/bwgated/%s.pid", SVR_NAME_TBL[stGATE]);
             if(lock_pid_file(szFlag) == false)  
             {   
-                printf("%s is aready runing.\n", SVR_DESP_TBL[stHTTP]);   
+                printf("%s is aready runing.\n", SVR_DESP_TBL[stGATE]);   
                 exit(-1);  
             }
             
             close(pfd[0]);
             daemon_init();
-            Service gate_srv(stHTTP);
+            Service gate_srv(stGATE);
             gate_srv.Run(pfd[1]);
             exit(0);
         }
@@ -86,11 +86,11 @@ static int Run()
             close(pfd[1]);
             read(pfd[0], &result, sizeof(unsigned int));
             if(result == 0)
-                printf("Start bwgated Service OK \t\t\t[%u]\n", http_pid);
+                printf("Start bwgated service OK \t\t\t[%u]\n", http_pid);
             else
             {
-                uTrace.Write(Trace_Error, "%s", "Start bwgated Service Failed.");
-                printf("Start bwgated Service Failed. \t\t\t[Error]\n");
+                uTrace.Write(Trace_Error, "%s", "Start bwgated service error.");
+                printf("Start bwgated service error. \t\t\t[Error]\n");
             }
             close(pfd[0]);
         }
@@ -113,7 +113,7 @@ static int Stop()
 {
 	printf("Stop bwgated service ...\n");
 	
-	Service gate_srv(stHTTP);
+	Service gate_srv(stGATE);
 	gate_srv.Stop();	
 }
 
@@ -126,7 +126,7 @@ static int Reload()
 {
 	printf("Reload bwgated configuration ...\n");
 
-	Service gate_srv(stHTTP);
+	Service gate_srv(stGATE);
 	gate_srv.ReloadConfig();
 }
 
@@ -134,7 +134,7 @@ static int ReloadAccess()
 {
 	printf("Reload bwgated access list ...\n");
 
-	Service gate_srv(stHTTP);
+	Service gate_srv(stGATE);
 	gate_srv.ReloadAccess();
 }
 
@@ -142,7 +142,7 @@ static int AppendReject(const char* data)
 {
 	printf("Append bwgated reject list ...\n");
 
-	Service gate_srv(stHTTP);
+	Service gate_srv(stGATE);
 	gate_srv.AppendReject(data);
 }
 
@@ -178,14 +178,14 @@ static int processcmd(const char* cmd, const char* conf, const char* permit, con
 	else if(strcasecmp(cmd, "status") == 0)
 	{
 		char szFlag[128];
-		sprintf(szFlag, "/tmp/bwgated/%s.pid", SVR_NAME_TBL[stHTTP]);
+		sprintf(szFlag, "/tmp/bwgated/%s.pid", SVR_NAME_TBL[stGATE]);
 		if(check_pid_file(szFlag) == false)    
 		{   
-			printf("%s is runing.\n", SVR_DESP_TBL[stHTTP]);   
+			printf("%s is runing.\n", SVR_DESP_TBL[stGATE]);   
 		}
 		else
 		{
-			printf("%s stopped.\n", SVR_DESP_TBL[stHTTP]);   
+			printf("%s stopped.\n", SVR_DESP_TBL[stGATE]);   
 		}
 		
 	}
