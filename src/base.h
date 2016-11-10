@@ -9,7 +9,6 @@
 #define CONFIG_FILE_PATH	"/etc/bwgated/bwgated.conf"
 #define PERMIT_FILE_PATH	"/etc/bwgated/permit.list"
 #define REJECT_FILE_PATH	"/etc/bwgated/reject.list"
-#define DOMAIN_FILE_PATH	"/etc/bwgated/domain.list"
 #define SERVICE_LIST_FILE_PATH	"/etc/bwgated/services.xml"
 #define BACKEND_LIST_FILE_PATH	"/etc/bwgated/backends.xml"
 

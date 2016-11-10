@@ -80,9 +80,7 @@ Session::~Session()
     for(itor = m_backend_bufs.begin(); itor != m_backend_bufs.end(); ++itor)
     {
         delete *itor;
-    } 
-    
-    //printf("release myself\n");
+    }     
 }
 
 int Session::recv_from_client()
@@ -91,7 +89,6 @@ int Session::recv_from_client()
     {
         buf_desc * bd = new buf_desc;
         bd->len = recv(m_sockfd, bd->buf, 4096, 0);
-        //printf("recv_from_client: %d\n", bd->len);
         if(bd->len > 0)
         {
             
@@ -117,7 +114,6 @@ int Session::recv_from_backend()
     {
         buf_desc * bd = new buf_desc;
         bd->len = recv(m_back_sockfd, bd->buf, 4096, 0);
-        //printf("recv_from_backend: %d\n", bd->len);
         if(bd->len > 0)
         {
             bd->cur = 0;
@@ -142,7 +138,6 @@ int Session::send_to_client()
         buf_desc * bd = m_backend_bufs.front();
         
         int s = send(m_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
-        //printf("send_to_client: %d\n", s);
         if(s > 0)
         {
             
@@ -170,7 +165,6 @@ int Session::send_to_backend()
     {
         buf_desc * bd = m_client_bufs.front();
         int s = send(m_back_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
-        //printf("send_to_backend: %d\n", s);
         if(s > 0)
         {
             bd->cur += s;

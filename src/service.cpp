@@ -303,8 +303,6 @@ int Service::create_client_socket(int& clt_sockfd, BOOL https, struct sockaddr_s
     
     client_ip = szclientip;
     
-    //printf("client_ip: %s, %s:%u, m_next_process: %d\n", client_ip.c_str(), backhost_ip.c_str(), backhost_port, m_next_process);
-    
     int access_result;
     if(bwgate_base::m_permit_list.size() > 0)
     {

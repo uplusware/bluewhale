@@ -15,7 +15,7 @@ string bwgate_base::m_sw_version = "0.1";
 //Global
 string bwgate_base::m_encoding = "UTF-8";
 
-string bwgate_base::m_localhostname = "uplusware.com";
+string bwgate_base::m_localhostname = "localhost";
 string bwgate_base::m_hostip = "";
 
 unsigned int bwgate_base::m_concurrent_conn = 20480;
@@ -72,13 +72,11 @@ BOOL bwgate_base::LoadConfig()
 			{
 				strcut(strline.c_str(), "=", NULL, m_localhostname );
 				strtrim(m_localhostname);
-				//printf("%s\n", m_localhostname.c_str());
 			}
 			else if(strncasecmp(strline.c_str(), "HostIP", strlen("HostIP")) == 0)
 			{
 				strcut(strline.c_str(), "=", NULL, m_hostip );
 				strtrim(m_hostip);
-				/* printf("[%s]\n", m_hostip.c_str()); */
 			}
             else if(strncasecmp(strline.c_str(), "CocurrentConnect", strlen("CocurrentConnect")) == 0)
 			{
@@ -86,11 +84,6 @@ BOOL bwgate_base::LoadConfig()
 				strcut(strline.c_str(), "=", NULL, concurrent_conn );
 				strtrim(concurrent_conn);
                 m_concurrent_conn = atoi(concurrent_conn.c_str());
-				/* printf("[%d]\n", m_concurrent_conn); */
-			}
-			else
-			{
-				/* printf("%s\n", strline.c_str()); */
 			}
 			strline = "";
 		}
