@@ -174,6 +174,31 @@ typedef struct
 	unsigned short port;
 }backend_host_t;
 
+typedef struct {
+	int pid;
+	int sockfds[2];
+} WORK_PROCESS_INFO;
+
+class Worker
+{
+public:
+	Worker(const char* service_name, int process_seq, int sockfd);
+	virtual ~Worker();
+
+	void Working();
+private:	
+	int m_sockfd;
+	int m_thread_num;
+	int m_process_seq;
+	string m_service_name;
+    
+    Session** m_client_list;
+    Session** m_backend_list;
+    //map<int, Session*> m_session_list; //connect with client
+    //map<int, Session*> m_backend_list; //connect with backend server
+    
+};
+
 class Service
 {
 public:
@@ -196,13 +221,15 @@ protected:
 	string m_service_name;
 
 	Service_Type m_st;
-	map<int, service_content_t> m_service_list;
+	
+    list<pid_t> m_child_list;
+	vector<WORK_PROCESS_INFO> m_work_processes;
     
-    map<int, Session*> m_session_list; //connect with client
-    map<int, Session*> m_backend_list; //connect with backend server
+    service_content_t** m_service_list;
+   
     
     vector<backend_host_t> m_backend_host_list;
-        
+    
     unsigned int m_next_process;
 };
 

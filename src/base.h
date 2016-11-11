@@ -250,8 +250,9 @@ public:
 	static string	m_encoding;
 	static string	m_hostip;
 	
-	static unsigned int	m_concurrent_conn;
-
+	static unsigned int	m_instance_max_concurrent_conn;
+    static unsigned int	m_max_instance_num;
+    
 	static string	m_config_file;
 	static string	m_permit_list_file;
 	static string	m_reject_list_file;

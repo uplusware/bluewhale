@@ -18,7 +18,9 @@ string bwgate_base::m_encoding = "UTF-8";
 string bwgate_base::m_localhostname = "localhost";
 string bwgate_base::m_hostip = "";
 
-unsigned int bwgate_base::m_concurrent_conn = 20480;
+unsigned int bwgate_base::m_instance_max_concurrent_conn = 4096;
+unsigned int bwgate_base::m_max_instance_num = 8;
+
 string	bwgate_base::m_config_file = CONFIG_FILE_PATH;
 string	bwgate_base::m_permit_list_file = PERMIT_FILE_PATH;
 string	bwgate_base::m_reject_list_file = REJECT_FILE_PATH;
@@ -78,13 +80,21 @@ BOOL bwgate_base::LoadConfig()
 				strcut(strline.c_str(), "=", NULL, m_hostip );
 				strtrim(m_hostip);
 			}
-            else if(strncasecmp(strline.c_str(), "CocurrentConnect", strlen("CocurrentConnect")) == 0)
+            else if(strncasecmp(strline.c_str(), "InstanceMaxCocurrentConNum", strlen("InstanceMaxCocurrentConNum")) == 0)
 			{
                 string concurrent_conn;
 				strcut(strline.c_str(), "=", NULL, concurrent_conn );
 				strtrim(concurrent_conn);
-                m_concurrent_conn = atoi(concurrent_conn.c_str());
+                m_instance_max_concurrent_conn = atoi(concurrent_conn.c_str());
 			}
+            else if(strncasecmp(strline.c_str(), "MaxInstanceNum", strlen("MaxInstanceNum")) == 0)
+			{
+                string max_instance_num;
+				strcut(strline.c_str(), "=", NULL, max_instance_num );
+				strtrim(max_instance_num);
+                m_max_instance_num = atoi(max_instance_num.c_str());
+			}
+            
 			strline = "";
 		}
 		
@@ -134,7 +144,7 @@ void bwgate_base::_load_permit_()
 	ifstream permitfilein(m_permit_list_file.c_str(), ios_base::binary);
 	if(!permitfilein.is_open())
 	{
-		printf("%s is not exist. please creat it", m_permit_list_file.c_str());
+		fprintf(stderr, "%s is not exist. please creat it", m_permit_list_file.c_str());
 		return;
 	}
 	while(getline(permitfilein, strline))
@@ -153,7 +163,7 @@ void bwgate_base::_load_reject_()
 	ifstream rejectfilein(m_reject_list_file.c_str(), ios_base::binary);
 	if(!rejectfilein.is_open())
 	{
-		printf("%s is not exist. please creat it", m_reject_list_file.c_str());
+		fprintf(stderr, "%s is not exist. please creat it", m_reject_list_file.c_str());
 		return;
 	}
 	while(getline(rejectfilein, strline))

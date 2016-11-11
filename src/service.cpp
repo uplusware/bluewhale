@@ -20,13 +20,101 @@
 #include "util/trace.h"
 #include "tinyxml/tinyxml.h"
 
+#define MAX_EVENTS_NUM  65536
+#define MAX_SOCKFD_NUM  65536
+
 enum CLIENT_PARAM_CTRL{
 	SessionParamData = 0,
-	SessionParamExt,
 	SessionParamQuit
 };
 
-static void CLEAR_QUEUE(mqd_t qid)
+typedef struct {
+	CLIENT_PARAM_CTRL ctrl;
+	char client_ip[128];
+    char backend_ip[128];
+    unsigned short backend_port;
+} CLIENT_PARAM;
+
+static int send_sockfd(int sfd, int fd_file, CLIENT_PARAM* param) 
+{
+	struct msghdr msg;  
+    struct iovec iov[1];  
+    union{  
+        struct cmsghdr cm;  
+        char control[CMSG_SPACE(sizeof(int))];  
+    }control_un;  
+    struct cmsghdr *cmptr;     
+    msg.msg_control = control_un.control;   
+    msg.msg_controllen = sizeof(control_un.control);  
+    cmptr = CMSG_FIRSTHDR(&msg);  
+    cmptr->cmsg_len = CMSG_LEN(sizeof(int));
+    cmptr->cmsg_level = SOL_SOCKET;   
+    cmptr->cmsg_type = SCM_RIGHTS;
+    *((int*)CMSG_DATA(cmptr)) = fd_file;
+    msg.msg_name = NULL;  
+    msg.msg_namelen = 0;  
+    iov[0].iov_base = param;  
+    iov[0].iov_len = sizeof(CLIENT_PARAM);  
+    msg.msg_iov = iov;  
+    msg.msg_iovlen = 1;
+
+    return sendmsg(sfd, &msg, 0); 
+
+}
+
+static int recv_sockfd(int sfd, int* fd_file, CLIENT_PARAM* param) 
+{
+    struct msghdr msg;  
+    struct iovec iov[1];  
+    int nrecv;  
+    union{
+		struct cmsghdr cm;  
+		char control[CMSG_SPACE(sizeof(int))];  
+    }control_un;  
+    struct cmsghdr *cmptr;  
+    msg.msg_control = control_un.control;  
+    msg.msg_controllen = sizeof(control_un.control);
+    msg.msg_name = NULL;  
+    msg.msg_namelen = 0;  
+
+    iov[0].iov_base = param;  
+    iov[0].iov_len = sizeof(CLIENT_PARAM);  
+    msg.msg_iov = iov;  
+    msg.msg_iovlen = 1;
+
+    if((nrecv = recvmsg(sfd, &msg, 0)) <= 0)  
+    {  
+
+        return nrecv;  
+    }
+
+    cmptr = CMSG_FIRSTHDR(&msg);  
+    if((cmptr != NULL) && (cmptr->cmsg_len == CMSG_LEN(sizeof(int))))  
+    {  
+        if(cmptr->cmsg_level != SOL_SOCKET)  
+        {  
+            printf("control level != SOL_SOCKET/n");  
+            exit(-1);  
+        }  
+        if(cmptr->cmsg_type != SCM_RIGHTS)  
+        {  
+            printf("control type != SCM_RIGHTS/n");  
+            exit(-1);  
+        } 
+        *fd_file = *((int*)CMSG_DATA(cmptr));  
+    }  
+    else  
+    {  
+        if(cmptr == NULL)
+			printf("null cmptr, fd not passed.\n");  
+        else
+			printf("message len[%d] if incorrect.\n", cmptr->cmsg_len);  
+        *fd_file = -1; // descriptor was not passed  
+    }   
+    return *fd_file;  
+}
+
+static void clear_mqueue(mqd_t qid)
 {
 	mq_attr attr;
 	struct timespec ts;
@@ -44,16 +132,294 @@ static void CLEAR_QUEUE(mqd_t qid)
 }
 
 //////////////////////////////////////////////////////////////////////////////////
+//Worker
+Worker::Worker(const char* service_name, int process_seq, int sockfd)
+{
+	m_sockfd = sockfd;
+	m_process_seq = process_seq;
+	m_service_name = service_name;
+    
+    m_client_list = new Session*[MAX_SOCKFD_NUM];
+    memset(m_client_list, 0, MAX_SOCKFD_NUM * sizeof(Session*));
+    
+    m_backend_list = new Session*[MAX_SOCKFD_NUM];
+    memset(m_backend_list, 0, MAX_SOCKFD_NUM * sizeof(Session*));
+}
+
+Worker::~Worker()
+{
+    if(m_client_list)
+    {
+        for(int x = 0; x < MAX_SOCKFD_NUM; x++)
+        {
+            if(m_client_list[x] != NULL)
+            {
+                close(x);
+                m_client_list[x]->release();
+            }
+        }
+        delete[] m_client_list;
+    }
+    m_client_list = NULL;
+    
+    if(m_backend_list)
+    {
+        for(int x = 0; x < MAX_SOCKFD_NUM; x++)
+        {
+            if(m_backend_list[x] != NULL)
+            {
+                close(x);
+                m_backend_list[x]->release();
+            }
+        }
+        delete[] m_backend_list;
+    }
+    m_backend_list = NULL;
+}
+
+void Worker::Working()
+{
+	bool bQuit = false;
+    
+    int epoll_fd;
+    epoll_fd = epoll_create1(0);
+    if (epoll_fd == -1)  
+    {  
+      perror ("epoll_create1");  
+      abort ();  
+    }
+        
+    struct epoll_event event;  
+    struct epoll_event * events = new struct epoll_event[bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn]; 
+    
+    event.data.fd = m_sockfd;  
+    event.events = EPOLLIN;
+    int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, m_sockfd, &event); 
+    if (s == -1)  
+    {  
+        perror("epoll_ctl, 1");
+        abort();
+        return;
+    }
+	while(!bQuit)
+	{
+        int n, i;  
+  
+        n = epoll_wait (epoll_fd, events, bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn, 1000);
+        
+        for (i = 0; i < n; i++)  
+        {
+            if(events[i].data.fd == m_sockfd)
+            {
+                int clt_sockfd;
+                CLIENT_PARAM client_param;
+                if(recv_sockfd(m_sockfd, &clt_sockfd, &client_param)  < 0)
+                {
+                    fprintf(stderr, "recv_sockfd < 0\n");
+                    continue;
+                }
+                if(clt_sockfd < 0)
+                {
+                    fprintf(stderr, "recv_sockfd error, clt_sockfd = %d %s %d\n", clt_sockfd, __FILE__, __LINE__);
+                    bQuit = true;
+                }
+
+                if(client_param.ctrl == SessionParamQuit)
+                {
+                    printf("quit\n");
+                    bQuit = true;
+                }
+                else
+                {
+                    
+                    event.data.fd = clt_sockfd;  
+                    event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;  
+                    int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, clt_sockfd, &event);  
+                    if (s == -1)  
+                    {  
+                        perror("epoll_ctl 2");  
+                        abort ();  
+                    }
+                    
+                    try {
+                        
+                        Session * p_session = new Session(clt_sockfd, client_param.client_ip, client_param.backend_ip, client_param.backend_port);
+                        
+                        p_session->accquire();
+                        
+                        if(m_client_list[p_session->get_clientsockfd()] != NULL)
+                        {
+                            m_client_list[p_session->get_clientsockfd()]->release();
+                        }
+                        m_client_list[p_session->get_clientsockfd()] = p_session;
+                        
+                        p_session->accquire();
+                        
+                        if(m_backend_list[p_session->get_backendsockfd()] != NULL)
+                        {
+                            m_backend_list[p_session->get_backendsockfd()]->release();
+                        }
+                        m_backend_list[p_session->get_backendsockfd()] = p_session;
+                        
+                        event.data.fd = p_session->get_backendsockfd();  
+                        event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR; 
+                    
+                        int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, p_session->get_backendsockfd(), &event);  
+                        if (s == -1)  
+                        {  
+                             perror("epoll_ctl 3");  
+                            abort ();  
+                        }
+                        
+                    }
+                    catch(string* e)
+                    {
+                        printf("%s\n", e->c_str());
+                        delete e;
+                    }
+                }
+            }
+            else
+            {
+                if (events[i].events & EPOLLIN)
+                {
+                    if(m_client_list[events[i].data.fd] != NULL)
+                    {
+                        Session* p_session = m_client_list[events[i].data.fd];
+                        if(p_session && p_session->recv_from_client() < 0)
+                        {
+                                struct epoll_event ev;
+                                ev.events = EPOLLIN;
+                                ev.data.fd = events[i].data.fd;
+                                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                                
+                                m_client_list[events[i].data.fd] = NULL;
+                                
+                                p_session->release(); //delete itself
+                                close(events[i].data.fd);
+                        }
+                    }
+                    else if(m_backend_list[events[i].data.fd] != NULL)
+                    {
+                        Session* p_session = m_backend_list[events[i].data.fd];
+                        if(p_session && p_session->recv_from_backend() < 0)
+                        {
+                            
+                            struct epoll_event ev;
+                            ev.events = EPOLLIN;
+                            ev.data.fd = events[i].data.fd;
+                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+
+                            m_backend_list[events[i].data.fd] = NULL;
+                            p_session->release(); //delete itself
+                            close(events[i].data.fd);
+                           
+                            
+                        }
+                    }
+                }
+                else if (events[i].events & EPOLLOUT)
+                {
+                    if(m_client_list[events[i].data.fd] != NULL)
+                    {
+                        Session* p_session = m_client_list[events[i].data.fd];
+                        if(p_session && p_session->send_to_client() < 0)
+                        {
+                            struct epoll_event ev;
+                            ev.events = EPOLLOUT;
+                            ev.data.fd = events[i].data.fd;
+                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            
+                            m_client_list[events[i].data.fd] = NULL;
+                                
+                            p_session->release(); //delete itself
+                            close(events[i].data.fd);
+                        }
+                    }
+                    else if(m_backend_list[events[i].data.fd] != NULL)
+                    {
+                        Session* p_session = m_backend_list[events[i].data.fd];
+                        if(p_session && p_session->send_to_backend() < 0)
+                        {
+                            struct epoll_event ev;
+                            ev.events = EPOLLOUT;
+                            ev.data.fd = events[i].data.fd;
+                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            
+                            m_backend_list[events[i].data.fd] = NULL;
+                            p_session->release(); //delete itself
+                            close(events[i].data.fd);
+                        }
+                    }
+                }
+                else if (events[i].events & EPOLLHUP || events[i].events & EPOLLERR)
+                {
+                    if(m_client_list[events[i].data.fd] != NULL)
+                    {
+                        Session* p_session = m_client_list[events[i].data.fd];
+                        if(p_session)
+                        {
+                            struct epoll_event ev;
+                            ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
+                            ev.data.fd = events[i].data.fd;
+                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+
+                            m_client_list[events[i].data.fd] = NULL;
+                                
+                            p_session->release(); //delete itself
+                            close(events[i].data.fd);
+                        }
+                    }
+                    else if(m_backend_list[events[i].data.fd] != NULL)
+                    {
+                        Session* p_session = m_backend_list[events[i].data.fd];
+                        if(p_session)
+                        {
+                            struct epoll_event ev;
+                            ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
+                            ev.data.fd = events[i].data.fd;
+                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            
+                            m_backend_list[events[i].data.fd] = NULL;
+                            
+                            p_session->release(); //delete itself
+                            close(events[i].data.fd);
+                        }
+                    }
+                }
+            }
+        }
+		
+	}
+    delete events;
+}
+
+//////////////////////////////////////////////////////////////////////////////////
 //Service
 Service::Service(Service_Type st)
 {
 	m_st = st;
 	m_service_name = SVR_NAME_TBL[m_st];
+    
+    m_service_list = new service_content_t*[MAX_SOCKFD_NUM];
+    memset(m_service_list, 0, MAX_SOCKFD_NUM * sizeof(service_content_t*));
 }
 
 Service::~Service()
 {
-
+    if(m_service_list)
+    {
+        for(int x = 0; x < MAX_SOCKFD_NUM; x++)
+        {
+            if(m_service_list[x] != NULL)
+            {
+                close(x);
+                delete m_service_list[x];
+            }
+        }
+        delete[] m_service_list;
+    }
+    m_service_list = NULL;
 }
 
 void Service::Stop()
@@ -240,7 +606,7 @@ int Service::create_server_socket(int& sockfd, const char* hostip, unsigned shor
     
        if (bind(sockfd, rp->ai_addr, rp->ai_addrlen) == 0)
            break;                  /* Success */
-       perror("listen");
+       perror("bind");
        close(sockfd);
     }
     
@@ -279,7 +645,7 @@ int Service::create_client_socket(int& clt_sockfd, BOOL https, struct sockaddr_s
             close(clt_sockfd);
             return 0;
         }
-        m_next_process = ntohl(v4_addr->sin_addr.s_addr) % m_backend_host_list.size();
+        m_next_process = ntohl(v4_addr->sin_addr.s_addr);
 
     }
     else if(clt_addr.ss_family == AF_INET6)
@@ -290,15 +656,15 @@ int Service::create_client_socket(int& clt_sockfd, BOOL https, struct sockaddr_s
             close(clt_sockfd);
             return 0;
         }
-        m_next_process = ntohl(v6_addr->sin6_addr.s6_addr32[3]) % m_backend_host_list.size(); 
+        m_next_process = ntohl(v6_addr->sin6_addr.s6_addr32[3]); 
     }
     else
     {
         m_next_process = 0; 
     }
     
-    backhost_ip = m_backend_host_list[m_next_process].ip;
-    backhost_port = m_backend_host_list[m_next_process].port;
+    backhost_ip = m_backend_host_list[m_next_process%m_backend_host_list.size()].ip;
+    backhost_port = m_backend_host_list[m_next_process% m_backend_host_list.size()].port;
     
     
     client_ip = szclientip;
@@ -349,8 +715,6 @@ int Service::create_client_socket(int& clt_sockfd, BOOL https, struct sockaddr_s
     return 0;
 }
 
-#define MAXEVENTS   40960
-
 int Service::Run(int fd)
 {	
 	CUplusTrace uTrace(LOGNAME, LCKNAME);
@@ -391,7 +755,7 @@ int Service::Run(int fd)
 		return -1;
 	}
 	
-	CLEAR_QUEUE(m_service_qid);
+	clear_mqueue(m_service_qid);
 	
 	BOOL svr_exit = FALSE;
 	int queue_buf_len = attr.mq_msgsize;
@@ -399,20 +763,80 @@ int Service::Run(int fd)
 
 	m_next_process = 0;
     
+    int nFlag;
+    
+    for(int i = 0; i < bwgate_base::m_max_instance_num; i++)
+	{
+		char pid_file[1024];
+		sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid", m_service_name.c_str(), i);
+		unlink(pid_file);
+        
+		WORK_PROCESS_INFO  wpinfo;
+		if (socketpair(AF_UNIX, SOCK_DGRAM, 0, wpinfo.sockfds) < 0)
+			fprintf(stderr, "socketpair error, %s %d\n", __FILE__, __LINE__);
+        
+        nFlag = fcntl(wpinfo.sockfds[0], F_GETFL, 0);
+        fcntl(wpinfo.sockfds[0], F_SETFL, nFlag|O_NONBLOCK);
+    
+		int work_pid = fork();
+		if(work_pid == 0)
+		{
+
+			if(lock_pid_file(pid_file) == false)
+			{
+				exit(-1);
+			}
+			close(wpinfo.sockfds[0]);
+            
+            nFlag = fcntl(wpinfo.sockfds[1], F_GETFL, 0);
+            fcntl(wpinfo.sockfds[1], F_SETFL, nFlag|O_NONBLOCK);
+        
+			Worker* pWorker = new Worker(m_service_name.c_str(), i, wpinfo.sockfds[1]);
+			if(pWorker)
+			{
+				pWorker->Working();
+				delete pWorker;
+			}
+			close(wpinfo.sockfds[1]);
+			exit(0);
+		}
+		else if(work_pid > 0)
+		{
+			close(wpinfo.sockfds[1]);
+			wpinfo.pid = work_pid;
+			m_work_processes.push_back(wpinfo);
+		}
+		else
+		{
+			fprintf(stderr, "fork error, work_pid = %d, %S %d\n", work_pid, __FILE__, __LINE__);
+		}
+	}
+    
     int epoll_fd;
     struct epoll_event event;  
-    struct epoll_event *events = new struct epoll_event[bwgate_base::m_concurrent_conn > MAXEVENTS ? MAXEVENTS : bwgate_base::m_concurrent_conn]; 
-        
+    struct epoll_event * events = new struct epoll_event[bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn]; 
+    
 	while(!svr_exit)
 	{
-        epoll_fd = epoll_create1 (0);
+        epoll_fd = epoll_create1(0);
         if (epoll_fd == -1)  
         {  
-          perror ("epoll_create");  
+          perror ("epoll_create1");  
           abort ();  
         }
+        if(m_service_list)
+        {
+            for(int x = 0; x < MAX_SOCKFD_NUM; x++)
+            {
+                if(m_service_list[x] != NULL)
+                {
+                    close(x);
+                    delete m_service_list[x];
+                }
+            }
+            memset(m_service_list, 0, MAX_SOCKFD_NUM * sizeof(service_content_t*));
+        }
         
-        m_service_list.clear();
         TiXmlDocument xmlServicesDoc;
         xmlServicesDoc.LoadFile(bwgate_base::m_service_list_file.c_str());
         TiXmlElement * pRootElement = xmlServicesDoc.RootElement();
@@ -423,23 +847,25 @@ int Service::Run(int fd)
             {
                 if(pChildNode && pChildNode->ToElement())
                 {                   
-                    service_content_t service_content;
-                    service_content.ip = pChildNode->ToElement()->Attribute("ip");
-                    strtrim(service_content.ip);
-                    service_content.port = atoi(pChildNode->ToElement()->Attribute("port"));
+                    service_content_t* service_content = new service_content_t;
                     
-                    service_content.is_ssl = strncasecmp(pChildNode->ToElement()->Attribute("port"), "true", 4) == 0 ? TRUE : FALSE;
-                    service_content.protocol = pChildNode->ToElement()->Attribute("protocol");;
-                    service_content.sockfd = -1;
+                    service_content->ip = pChildNode->ToElement()->Attribute("ip");
+                    strtrim(service_content->ip);
+                    service_content->port = atoi(pChildNode->ToElement()->Attribute("port"));
                     
-                    create_server_socket(service_content.sockfd, service_content.ip.c_str(), service_content.port);
-                    if(service_content.sockfd > 0)
+                    service_content->is_ssl = strncasecmp(pChildNode->ToElement()->Attribute("port"), "true", 4) == 0 ? TRUE : FALSE;
+                    service_content->protocol = pChildNode->ToElement()->Attribute("protocol");;
+                    service_content->sockfd = -1;
+                    
+                    create_server_socket(service_content->sockfd, service_content->ip.c_str(), service_content->port);
+                    if(service_content->sockfd > 0)
                     {
-                        event.data.fd = service_content.sockfd;  
+                        event.data.fd = service_content->sockfd;  
                         event.events = EPOLLIN;
-                        int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, service_content.sockfd, &event);  
-        
-                        m_service_list.insert(map<int, service_content_t>::value_type(service_content.sockfd, service_content));
+                        int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, service_content->sockfd, &event);
+                        if(m_service_list[service_content->sockfd] != NULL)
+                            delete m_service_list[service_content->sockfd];
+                        m_service_list[service_content->sockfd] = service_content;
                     }
                 }
                 pChildNode = pChildNode->NextSibling("service");
@@ -488,6 +914,14 @@ int Service::Run(int fd)
 				pQMsg = (stQueueMsg*)queue_buf_ptr;
 				if(pQMsg->cmd == MSG_EXIT)
 				{
+                    for(int j = 0; j < m_work_processes.size(); j++)
+					{
+						CLIENT_PARAM client_param;
+						client_param.ctrl = SessionParamQuit;
+						
+						send_sockfd(m_work_processes[j].sockfds[0], 0, &client_param);
+					}
+                    
 					svr_exit = TRUE;
 					break;
 				}
@@ -529,12 +963,11 @@ int Service::Run(int fd)
             
             int n, i;  
   
-            n = epoll_wait (epoll_fd, events, bwgate_base::m_concurrent_conn > MAXEVENTS ? MAXEVENTS : bwgate_base::m_concurrent_conn, 1000);
+            n = epoll_wait (epoll_fd, events, bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn, 1000);
             
             for (i = 0; i < n; i++)  
             {  
-                map<int, service_content_t>::iterator iter = m_service_list.find(events[i].data.fd);
-                if(iter != m_service_list.end())
+                if(m_service_list[events[i].data.fd] != NULL)
                 {                    
                     struct sockaddr_storage clt_addr;
                 
@@ -547,183 +980,60 @@ int Service::Run(int fd)
                     }
                     
                     string client_ip;
-                    string backhost_ip;
-                    unsigned short backhost_port;
-                    if(create_client_socket(clt_sockfd, false, clt_addr, clt_size, client_ip, backhost_ip, backhost_port) < 0)
+                    string backend_ip;
+                    unsigned short backend_port;
+                    if(create_client_socket(clt_sockfd, false, clt_addr, clt_size, client_ip, backend_ip, backend_port) < 0)
                         continue;
-                    event.data.fd = clt_sockfd;  
-                    event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;  
-                    int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, clt_sockfd, &event);  
-                    if (s == -1)  
-                    {  
-                        perror ("epoll_ctl");  
-                        abort ();  
-                    }
                     
-                    try {
-                        Session * p_session = new Session(clt_sockfd, client_ip.c_str(), backhost_ip.c_str(), backhost_port);
-                        
-                        p_session->accquire();
-                        map<int, Session*>::iterator iter = m_session_list.find(clt_sockfd);
-                        if(iter != m_session_list.end())
-                        {
-                            delete iter->second;
-                            iter->second = p_session;
-                        }
-                        else
-                        {
-                            m_session_list.insert(map<int, Session*>::value_type(clt_sockfd, p_session));
-                        }
-                        
-                        p_session->accquire();
-                        
-                        iter = m_backend_list.find(clt_sockfd);
-                        if(iter != m_backend_list.end())
-                        {
-                            delete iter->second;
-                            iter->second = p_session;
-                        }
-                        else
-                        {
-                            m_backend_list.insert(map<int, Session*>::value_type(p_session->get_backsockfd(), p_session));
-                        }
-                        
-                        event.data.fd = p_session->get_backsockfd();  
-                        event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR; 
+                    char pid_file[1024];
+                    sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid",
+                        m_service_name.c_str(), m_next_process%m_work_processes.size());
                     
-                        int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, p_session->get_backsockfd(), &event);  
-                        if (s == -1)  
-                        {  
-                            perror ("epoll_ctl");  
-                            abort ();  
-                        }
+                    if(check_pid_file(pid_file) == true) /* The related process had crashed */
+                    {
+                        WORK_PROCESS_INFO  wpinfo;
+                        if (socketpair(AF_UNIX, SOCK_DGRAM, 0, wpinfo.sockfds) < 0)
+                            fprintf(stderr, "socketpair error, %s %d\n", __FILE__, __LINE__);
                         
+                        int work_pid = fork();
+                        if(work_pid == 0)
+                        {
+                            if(lock_pid_file(pid_file) == false)
+                            {
+                                exit(-1);
+                            }
+                            close(wpinfo.sockfds[0]);
+                            Worker * pWorker = new Worker(m_service_name.c_str(), m_next_process%m_work_processes.size(),
+                                wpinfo.sockfds[1]);
+                            pWorker->Working();
+                            delete pWorker;
+                            close(wpinfo.sockfds[1]);
+                            exit(0);
+                        }
+                        else if(work_pid > 0)
+                        {
+                            close(wpinfo.sockfds[1]);
+                            wpinfo.pid = work_pid;
+                            m_work_processes[m_next_process%m_work_processes.size()] = wpinfo;
+                        }
+                        else
+                        {
+                            return 0;
+                        }
                     }
-                    catch(string* e)
-                    {
-                        printf("%s\n", e->c_str());
-                        delete e;
-                    }
+        
+                    CLIENT_PARAM client_param;
+                    strncpy(client_param.client_ip, client_ip.c_str(), 127);
+                    client_param.client_ip[127] = '\0';
                     
-                }
-                else
-                {
-                    if (events[i].events & EPOLLIN)
-                    {
-                        map<int, Session*>::iterator iter = m_session_list.find(events[i].data.fd);
-                        if(iter != m_session_list.end())
-                        {
-                            Session* p_session = m_session_list[events[i].data.fd];
-                            if(p_session && p_session->recv_from_client() < 0)
-                            {
-                                    struct epoll_event ev;
-                                    ev.events = EPOLLIN;
-                                    ev.data.fd = fd;
-                                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
-                                    
-                                    m_session_list.erase(iter);
-                                    p_session->release();
-                                    close(events[i].data.fd);
-                            }
-                        }
-                        else
-                        {
-                            map<int, Session*>::iterator iter = m_backend_list.find(events[i].data.fd);
-                            if(iter != m_backend_list.end())
-                            {
-                                Session* p_session = m_backend_list[events[i].data.fd];
-                                if(p_session && p_session->recv_from_backend() < 0)
-                                {
-                                    
-                                    struct epoll_event ev;
-                                    ev.events = EPOLLIN;
-                                    ev.data.fd = fd;
-                                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
-                                    m_backend_list.erase(iter);
-                                    p_session->release();
-                                    close(events[i].data.fd);
-                                   
-                                    
-                                }
-                            }
-                        }
-                    }
-                    else if (events[i].events & EPOLLOUT)
-                    {
-                        map<int, Session*>::iterator iter = m_session_list.find(events[i].data.fd);
-                        if(iter != m_session_list.end())
-                        {
-                            Session* p_session = m_session_list[events[i].data.fd];
-                            if(p_session && p_session->send_to_client() < 0)
-                            {
-                                struct epoll_event ev;
-                                ev.events = EPOLLOUT;
-                                ev.data.fd = fd;
-                                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
-                                
-                                m_session_list.erase(iter);
-                                p_session->release();
-                                close(events[i].data.fd);
-                            }
-                        }
-                        else
-                        {
-                            map<int, Session*>::iterator iter = m_backend_list.find(events[i].data.fd);
-                            if(iter != m_backend_list.end())
-                            {
-                                Session* p_session = m_backend_list[events[i].data.fd];
-                                if(p_session && p_session->send_to_backend() < 0)
-                                {
-                                    struct epoll_event ev;
-                                    ev.events = EPOLLOUT;
-                                    ev.data.fd = fd;
-                                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
-                                    
-                                    m_backend_list.erase(iter);
-                                    p_session->release();
-                                    close(events[i].data.fd);
-                                }
-                            }
-                        }
-                    }
-                    else if (events[i].events & EPOLLHUP || events[i].events & EPOLLERR)
-                    {
-                        map<int, Session*>::iterator iter = m_session_list.find(events[i].data.fd);
-                        if(iter != m_session_list.end())
-                        {
-                            Session* p_session = m_session_list[events[i].data.fd];
-                            if(p_session)
-                            {
-                                struct epoll_event ev;
-                                ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
-                                ev.data.fd = fd;
-                                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                    strncpy(client_param.backend_ip, backend_ip.c_str(), 127);
+                    client_param.backend_ip[127] = '\0';
+                    
+                    client_param.backend_port = backend_port;
 
-                                m_session_list.erase(iter);
-                                p_session->release();
-                                close(events[i].data.fd);
-                            }
-                        }
-                        else
-                        {
-                            map<int, Session*>::iterator iter = m_backend_list.find(events[i].data.fd);
-                            if(iter != m_backend_list.end())
-                            {
-                                Session* p_session = m_backend_list[events[i].data.fd];
-                                if(p_session)
-                                {
-                                    struct epoll_event ev;
-                                    ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
-                                    ev.data.fd = fd;
-                                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
-                                    
-                                    m_backend_list.erase(iter);
-                                    p_session->release();
-                                    close(events[i].data.fd);
-                                }
-                            }
-                        }
-                    }
+                    client_param.ctrl = SessionParamData;
+                    send_sockfd(m_work_processes[m_next_process%m_work_processes.size()].sockfds[0], clt_sockfd, &client_param);
+                    close(clt_sockfd); //have been send out to another process, so close it in the current process.
                 }   
             }
 		}
@@ -731,11 +1041,6 @@ int Service::Run(int fd)
     delete[] events;
     close(epoll_fd);
     
-    map<int, service_content_t>::iterator it;
-    for(it = m_service_list.begin(); it != m_service_list.end(); ++it)
-    {
-        close(it->first);
-    }
 	free(queue_buf_ptr);
 	if(m_service_qid != (mqd_t)-1)
 		mq_close(m_service_qid);

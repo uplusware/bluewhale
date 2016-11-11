@@ -30,19 +30,20 @@ typedef struct{
 class Session
 {
 protected:
-	int m_sockfd;
-    int m_back_sockfd;
+	int m_client_sockfd;
+    int m_backend_sockfd;
 	string m_clientip;
     
     list<buf_desc*> m_client_bufs;
     list<buf_desc*> m_backend_bufs;
     
-    unsigned long m_use_count;
+    int m_use_count;
 public:
 	Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port);
 	virtual ~Session();
     
-    int get_backsockfd() { return m_back_sockfd; }
+    int get_backendsockfd() { return m_backend_sockfd; }
+    int get_clientsockfd() { return m_client_sockfd; }
     
     int recv_from_client();
     int recv_from_backend();
@@ -58,7 +59,7 @@ public:
     void release()
     {
         m_use_count--;
-        if(m_use_count == 0)
+        if(m_use_count <= 0)
             delete this;
     }
 };

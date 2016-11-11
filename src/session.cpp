@@ -7,11 +7,13 @@
 
 Session::Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port)
 {
+    m_client_bufs.clear();
+     
     m_use_count = 0;
-    m_sockfd = sockfd;
+    m_client_sockfd = sockfd;
 	m_clientip = clientip;
     
-    m_back_sockfd = -1;
+    m_backend_sockfd = -1;
     
     struct addrinfo hints;      
     struct addrinfo *servinfo, *curr;  
@@ -43,14 +45,14 @@ Session::Session(int sockfd, const char* clientip, const char* backhost_ip, unsi
     
     for (rp = server_addr; rp != NULL; rp = rp->ai_next)
     {
-       m_back_sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-       if (m_back_sockfd == -1)
+       m_backend_sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+       if (m_backend_sockfd == -1)
            continue;
        
-	    int flags = fcntl(m_back_sockfd, F_GETFL, 0); 
-	    fcntl(m_back_sockfd, F_SETFL, flags | O_NONBLOCK);
+	    int flags = fcntl(m_backend_sockfd, F_GETFL, 0); 
+	    fcntl(m_backend_sockfd, F_SETFL, flags | O_NONBLOCK);
 	
-        connect(m_back_sockfd, rp->ai_addr, rp->ai_addrlen);
+        connect(m_backend_sockfd, rp->ai_addr, rp->ai_addrlen);
         break;
     }
 
@@ -87,11 +89,26 @@ int Session::recv_from_client()
 {
     if(m_client_bufs.size() < 10)
     {
+        if(m_client_bufs.size() > 0)
+        {
+            buf_desc * bd = m_client_bufs.back();
+            if(bd->len <= 1024*3)
+            {
+                int r = recv(m_client_sockfd, bd->buf + bd->len, 4096 - bd->len, 0);
+                if(r > 0)
+                {
+                    bd->len += r;
+                    return bd->len;
+                }
+                else
+                    return -1;
+            }
+        }
+        //continue
         buf_desc * bd = new buf_desc;
-        bd->len = recv(m_sockfd, bd->buf, 4096, 0);
+        bd->len = recv(m_client_sockfd, bd->buf, 4096, 0);
         if(bd->len > 0)
         {
-            
             bd->cur = 0;
             m_client_bufs.push_back(bd);
             send_to_backend();
@@ -112,8 +129,25 @@ int Session::recv_from_backend()
 {
     if(m_backend_bufs.size() < 10)
     {
+        if(m_backend_bufs.size() > 0)
+        {
+            buf_desc * bd = m_backend_bufs.back();
+            if(bd->len <= 1024*3)
+            {
+                int r = recv(m_backend_sockfd, bd->buf + bd->len, 4096 - bd->len, 0);
+                if(r > 0)
+                {
+                    bd->len += r;
+                    return bd->len;
+                }
+                else
+                    return -1;
+            }
+        }
+        //continue
+        
         buf_desc * bd = new buf_desc;
-        bd->len = recv(m_back_sockfd, bd->buf, 4096, 0);
+        bd->len = recv(m_backend_sockfd, bd->buf, 4096, 0);
         if(bd->len > 0)
         {
             bd->cur = 0;
@@ -129,6 +163,7 @@ int Session::recv_from_backend()
     }
     else
         send_to_client();
+    return 0;
 }
 
 int Session::send_to_client()
@@ -137,7 +172,7 @@ int Session::send_to_client()
     {
         buf_desc * bd = m_backend_bufs.front();
         
-        int s = send(m_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
+        int s = send(m_client_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
         if(s > 0)
         {
             
@@ -164,7 +199,7 @@ int Session::send_to_backend()
     if(m_client_bufs.size() > 0)
     {
         buf_desc * bd = m_client_bufs.front();
-        int s = send(m_back_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
+        int s = send(m_backend_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
         if(s > 0)
         {
             bd->cur += s;
