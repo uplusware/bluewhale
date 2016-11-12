@@ -630,7 +630,7 @@ int Service::create_server_socket(int& sockfd, const char* hostip, unsigned shor
     
     return 0;
 }
-int Service::create_client_socket(int& clt_sockfd, BOOL https, struct sockaddr_storage& clt_addr, socklen_t clt_size,
+int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https, struct sockaddr_storage& clt_addr, socklen_t clt_size,
     string& client_ip, string& backhost_ip, unsigned short& backhost_port)
 {
     struct sockaddr_in * v4_addr;
@@ -645,7 +645,7 @@ int Service::create_client_socket(int& clt_sockfd, BOOL https, struct sockaddr_s
             close(clt_sockfd);
             return 0;
         }
-        m_next_process = ntohl(v4_addr->sin_addr.s_addr);
+        m_ip = ntohl(v4_addr->sin_addr.s_addr);
 
     }
     else if(clt_addr.ss_family == AF_INET6)
@@ -656,15 +656,15 @@ int Service::create_client_socket(int& clt_sockfd, BOOL https, struct sockaddr_s
             close(clt_sockfd);
             return 0;
         }
-        m_next_process = ntohl(v6_addr->sin6_addr.s6_addr32[3]); 
+        m_ip = ntohl(v6_addr->sin6_addr.s6_addr32[3]); 
     }
     else
     {
-        m_next_process = 0; 
+        m_ip = 0; 
     }
     
-    backhost_ip = m_backend_host_list[m_next_process%m_backend_host_list.size()].ip;
-    backhost_port = m_backend_host_list[m_next_process% m_backend_host_list.size()].port;
+    backhost_ip = m_backend_host_list[gate][m_ip%m_backend_host_list.size()].ip;
+    backhost_port = m_backend_host_list[gate][m_ip% m_backend_host_list.size()].port;
     
     
     client_ip = szclientip;
@@ -761,7 +761,7 @@ int Service::Run(int fd)
 	int queue_buf_len = attr.mq_msgsize;
 	char* queue_buf_ptr = (char*)malloc(queue_buf_len);
 
-	m_next_process = 0;
+	m_ip = 0;
     
     int nFlag;
     
@@ -849,12 +849,20 @@ int Service::Run(int fd)
                 {                   
                     service_content_t* service_content = new service_content_t;
                     
-                    service_content->ip = pChildNode->ToElement()->Attribute("ip");
+                    service_content->ip = pChildNode->ToElement()->Attribute("ip") ? pChildNode->ToElement()->Attribute("ip") : "";
                     strtrim(service_content->ip);
-                    service_content->port = atoi(pChildNode->ToElement()->Attribute("port"));
                     
-                    service_content->is_ssl = strncasecmp(pChildNode->ToElement()->Attribute("port"), "true", 4) == 0 ? TRUE : FALSE;
-                    service_content->protocol = pChildNode->ToElement()->Attribute("protocol");;
+                    string str_port = pChildNode->ToElement()->Attribute("port") ? pChildNode->ToElement()->Attribute("port") : "";
+                    strtrim(str_port);
+                    service_content->port = atoi(str_port.c_str());
+                    
+                    string str_isssl = pChildNode->ToElement()->Attribute("ssl") ? pChildNode->ToElement()->Attribute("ssl") : "";
+                    strtrim(str_isssl);
+                    service_content->is_ssl = strncasecmp(str_isssl.c_str(), "true", 4) == 0 ? TRUE : FALSE;
+                    
+                    service_content->protocol = pChildNode->ToElement()->Attribute("protocol") ? pChildNode->ToElement()->Attribute("protocol") : "";
+                    strtrim(service_content->protocol);
+                    
                     service_content->sockfd = -1;
                     
                     create_server_socket(service_content->sockfd, service_content->ip.c_str(), service_content->port);
@@ -886,9 +894,23 @@ int Service::Run(int fd)
                 {        
                     backend_host_t backend_host;
                     
-                    backend_host.ip = pChildNode->ToElement()->Attribute("ip");
-                    backend_host.port = atoi(pChildNode->ToElement()->Attribute("port"));
-                    m_backend_host_list.push_back(backend_host);
+                    backend_host.ip = pChildNode->ToElement()->Attribute("ip") ? pChildNode->ToElement()->Attribute("ip") : "";
+                    strtrim(backend_host.ip);
+                    
+                    string str_port = pChildNode->ToElement()->Attribute("port") ? pChildNode->ToElement()->Attribute("port") : "";
+                    strtrim(str_port);
+                    backend_host.port = atoi(str_port.c_str());
+                    
+                    string str_isssl = pChildNode->ToElement()->Attribute("ssl") ? pChildNode->ToElement()->Attribute("ssl") : "";
+                    strtrim(str_isssl);
+                    backend_host.is_ssl = strncasecmp(str_isssl.c_str(), "true", 4) == 0 ? TRUE : FALSE;
+                    
+                    backend_host.protocol = pChildNode->ToElement()->Attribute("protocol") ? pChildNode->ToElement()->Attribute("protocol") : "";
+                    strtrim(backend_host.protocol);
+                    
+                    backend_host.gate = pChildNode->ToElement()->Attribute("gate") ? pChildNode->ToElement()->Attribute("gate") : "";
+                    strtrim(backend_host.gate);
+                    m_backend_host_list[backend_host.gate].push_back(backend_host);
                 }
                 pChildNode = pChildNode->NextSibling("backend");
             }
@@ -968,7 +990,10 @@ int Service::Run(int fd)
             for (i = 0; i < n; i++)  
             {  
                 if(m_service_list[events[i].data.fd] != NULL)
-                {                    
+                {
+                    char sz_gate[512];
+                    sprintf(sz_gate, "%s:%u", m_service_list[events[i].data.fd]->ip.c_str(), m_service_list[events[i].data.fd]->port);
+                    
                     struct sockaddr_storage clt_addr;
                 
                     socklen_t clt_size = sizeof(struct sockaddr_storage);
@@ -982,12 +1007,12 @@ int Service::Run(int fd)
                     string client_ip;
                     string backend_ip;
                     unsigned short backend_port;
-                    if(create_client_socket(clt_sockfd, false, clt_addr, clt_size, client_ip, backend_ip, backend_port) < 0)
+                    if(create_client_socket(sz_gate, clt_sockfd, false, clt_addr, clt_size, client_ip, backend_ip, backend_port) < 0)
                         continue;
                     
                     char pid_file[1024];
                     sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid",
-                        m_service_name.c_str(), m_next_process%m_work_processes.size());
+                        m_service_name.c_str(), m_ip%m_work_processes.size());
                     
                     if(check_pid_file(pid_file) == true) /* The related process had crashed */
                     {
@@ -1003,7 +1028,7 @@ int Service::Run(int fd)
                                 exit(-1);
                             }
                             close(wpinfo.sockfds[0]);
-                            Worker * pWorker = new Worker(m_service_name.c_str(), m_next_process%m_work_processes.size(),
+                            Worker * pWorker = new Worker(m_service_name.c_str(), m_ip%m_work_processes.size(),
                                 wpinfo.sockfds[1]);
                             pWorker->Working();
                             delete pWorker;
@@ -1014,7 +1039,7 @@ int Service::Run(int fd)
                         {
                             close(wpinfo.sockfds[1]);
                             wpinfo.pid = work_pid;
-                            m_work_processes[m_next_process%m_work_processes.size()] = wpinfo;
+                            m_work_processes[m_ip%m_work_processes.size()] = wpinfo;
                         }
                         else
                         {
@@ -1032,7 +1057,7 @@ int Service::Run(int fd)
                     client_param.backend_port = backend_port;
 
                     client_param.ctrl = SessionParamData;
-                    send_sockfd(m_work_processes[m_next_process%m_work_processes.size()].sockfds[0], clt_sockfd, &client_param);
+                    send_sockfd(m_work_processes[m_ip%m_work_processes.size()].sockfds[0], clt_sockfd, &client_param);
                     close(clt_sockfd); //have been send out to another process, so close it in the current process.
                 }   
             }

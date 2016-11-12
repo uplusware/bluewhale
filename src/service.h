@@ -154,6 +154,7 @@ static bool check_pid_file(const char* pflag)
 typedef std::pair<std::string, unsigned short> service_key_t;
 
 typedef struct{
+    //from xml configuration
     string ip;
     unsigned short port;
     BOOL is_ssl;
@@ -172,6 +173,9 @@ typedef struct
 {
 	string ip;
 	unsigned short port;
+    BOOL is_ssl;
+    string protocol;
+    string gate;
 }backend_host_t;
 
 typedef struct {
@@ -194,8 +198,6 @@ private:
     
     Session** m_client_list;
     Session** m_backend_list;
-    //map<int, Session*> m_session_list; //connect with client
-    //map<int, Session*> m_backend_list; //connect with backend server
     
 };
 
@@ -212,8 +214,9 @@ public:
 	void AppendReject(const char* data);
 
 protected:
-    int create_client_socket(int& clt_sockfd, BOOL https, struct sockaddr_storage& clt_addr, socklen_t clt_size,
+    int create_client_socket(const char* gate, int& clt_sockfd, BOOL https, struct sockaddr_storage& clt_addr, socklen_t clt_size,
         string& client_ip, string& backhost_ip, unsigned short& backhost_port);
+
     int create_server_socket(int& sockfd, const char* hostip, unsigned short port);
     
 	mqd_t m_service_qid;
@@ -228,9 +231,9 @@ protected:
     service_content_t** m_service_list;
    
     
-    vector<backend_host_t> m_backend_host_list;
+    map<string, vector<backend_host_t> > m_backend_host_list;
     
-    unsigned int m_next_process;
+    unsigned int m_ip;
 };
 
 #endif /* _SERVICE_H_ */
