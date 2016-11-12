@@ -715,6 +715,44 @@ int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https,
     return 0;
 }
 
+void Service::ReloadBackend()
+{
+    m_backend_host_list.clear();
+    TiXmlDocument xmlBackendDoc;
+    xmlBackendDoc.LoadFile(bwgate_base::m_backend_list_file.c_str());
+    TiXmlElement * pRootElement = xmlBackendDoc.RootElement();
+    if(pRootElement)
+    {
+        TiXmlNode* pChildNode = pRootElement->FirstChild("backend");
+        while(pChildNode)
+        {
+            if(pChildNode && pChildNode->ToElement())
+            {        
+                backend_host_t backend_host;
+                
+                backend_host.ip = pChildNode->ToElement()->Attribute("ip") ? pChildNode->ToElement()->Attribute("ip") : "";
+                strtrim(backend_host.ip);
+                
+                string str_port = pChildNode->ToElement()->Attribute("port") ? pChildNode->ToElement()->Attribute("port") : "";
+                strtrim(str_port);
+                backend_host.port = atoi(str_port.c_str());
+                
+                string str_isssl = pChildNode->ToElement()->Attribute("ssl") ? pChildNode->ToElement()->Attribute("ssl") : "";
+                strtrim(str_isssl);
+                backend_host.is_ssl = strncasecmp(str_isssl.c_str(), "true", 4) == 0 ? TRUE : FALSE;
+                
+                backend_host.protocol = pChildNode->ToElement()->Attribute("protocol") ? pChildNode->ToElement()->Attribute("protocol") : "";
+                strtrim(backend_host.protocol);
+                
+                backend_host.gate = pChildNode->ToElement()->Attribute("gate") ? pChildNode->ToElement()->Attribute("gate") : "";
+                strtrim(backend_host.gate);
+                m_backend_host_list[backend_host.gate].push_back(backend_host);
+            }
+            pChildNode = pChildNode->NextSibling("backend");
+        }
+    }
+}
+
 int Service::Run(int fd)
 {	
 	CUplusTrace uTrace(LOGNAME, LCKNAME);
@@ -881,40 +919,7 @@ int Service::Run(int fd)
         }
         
         
-        m_backend_host_list.clear();
-        TiXmlDocument xmlBackendDoc;
-        xmlBackendDoc.LoadFile(bwgate_base::m_backend_list_file.c_str());
-        pRootElement = xmlBackendDoc.RootElement();
-        if(pRootElement)
-        {
-            TiXmlNode* pChildNode = pRootElement->FirstChild("backend");
-            while(pChildNode)
-            {
-                if(pChildNode && pChildNode->ToElement())
-                {        
-                    backend_host_t backend_host;
-                    
-                    backend_host.ip = pChildNode->ToElement()->Attribute("ip") ? pChildNode->ToElement()->Attribute("ip") : "";
-                    strtrim(backend_host.ip);
-                    
-                    string str_port = pChildNode->ToElement()->Attribute("port") ? pChildNode->ToElement()->Attribute("port") : "";
-                    strtrim(str_port);
-                    backend_host.port = atoi(str_port.c_str());
-                    
-                    string str_isssl = pChildNode->ToElement()->Attribute("ssl") ? pChildNode->ToElement()->Attribute("ssl") : "";
-                    strtrim(str_isssl);
-                    backend_host.is_ssl = strncasecmp(str_isssl.c_str(), "true", 4) == 0 ? TRUE : FALSE;
-                    
-                    backend_host.protocol = pChildNode->ToElement()->Attribute("protocol") ? pChildNode->ToElement()->Attribute("protocol") : "";
-                    strtrim(backend_host.protocol);
-                    
-                    backend_host.gate = pChildNode->ToElement()->Attribute("gate") ? pChildNode->ToElement()->Attribute("gate") : "";
-                    strtrim(backend_host.gate);
-                    m_backend_host_list[backend_host.gate].push_back(backend_host);
-                }
-                pChildNode = pChildNode->NextSibling("backend");
-            }
-        }
+        ReloadBackend();
         
 		int nFlag;
 
@@ -951,6 +956,7 @@ int Service::Run(int fd)
 				{
 					bwgate_base::UnLoadConfig();
 					bwgate_base::LoadConfig();
+                    ReloadBackend();
 				}
 				else if(pQMsg->cmd == MSG_ACCESS_RELOAD)
 				{
