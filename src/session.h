@@ -56,8 +56,21 @@ public:
         m_use_count++;
     }
     
-    void release()
+    void release(int sockfd = -1)
     {
+        if(sockfd > 0)
+        {
+            if(m_client_sockfd == sockfd)
+            {
+                close(m_client_sockfd);
+                m_client_sockfd = -1;
+            }
+            else if(m_backend_sockfd == sockfd)
+            {
+                close(m_backend_sockfd);
+                m_backend_sockfd = -1;
+            }
+        }
         m_use_count--;
         if(m_use_count <= 0)
             delete this;

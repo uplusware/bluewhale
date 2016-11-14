@@ -1,6 +1,6 @@
 CC = gcc
 BWGATED = bwgated
-BWGATEDOBJS = mainsrv.o service.o session.o base.o util/trace.o util/DES.o tinyxml/tinyxmlparser.o tinyxml/tinyxmlerror.o tinyxml/tinyxml.o tinyxml/tinystr.o
+BWGATEDOBJS = mainsrv.o service.o session.o base.o util/trace.o tinyxml/tinyxmlparser.o tinyxml/tinyxmlerror.o tinyxml/tinyxml.o tinyxml/tinystr.o
 
 ifdef CYGWIN
 MDEF = CYGWIN

@@ -212,7 +212,7 @@ public:
 	void ReloadAccess();
 	void ReloadExtension();
 	void AppendReject(const char* data);
-    void ReloadBackend();
+    void ReloadBackend(CUplusTrace& uTrace);
 
 protected:
     int create_client_socket(const char* gate, int& clt_sockfd, BOOL https, struct sockaddr_storage& clt_addr, socklen_t clt_size,

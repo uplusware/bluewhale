@@ -51,9 +51,6 @@ char PIDFILE[256] = "/tmp/bwgated/bwgated.pid";
 
 static int Run()
 {
-	CUplusTrace uTrace(LOGNAME, LCKNAME);
-	uTrace.Write(Trace_Msg, "%s", "Service starts");
-
 	int retVal = 0;
 	int http_pid = -1;
 
@@ -89,7 +86,6 @@ static int Run()
                 printf("Start bwgated service OK \t\t\t[%u]\n", http_pid);
             else
             {
-                uTrace.Write(Trace_Error, "%s", "Start bwgated service error.");
                 printf("Start bwgated service error. \t\t\t[Error]\n");
             }
             close(pfd[0]);

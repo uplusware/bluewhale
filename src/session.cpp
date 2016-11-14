@@ -82,7 +82,18 @@ Session::~Session()
     for(itor = m_backend_bufs.begin(); itor != m_backend_bufs.end(); ++itor)
     {
         delete *itor;
-    }     
+    }
+    
+    if(m_backend_sockfd > 0)
+    {
+        close(m_backend_sockfd);
+        m_backend_sockfd = -1;
+    }
+    if(m_client_sockfd > 0)
+    {
+        close(m_client_sockfd);
+        m_client_sockfd = -1;
+    }
 }
 
 int Session::recv_from_client()
@@ -101,7 +112,11 @@ int Session::recv_from_client()
                     return bd->len;
                 }
                 else
+                {
+                    close(m_client_sockfd);
+                    m_client_sockfd = -1;
                     return -1;
+                }
             }
         }
         //continue
@@ -116,6 +131,8 @@ int Session::recv_from_client()
         }
         else
         {
+            close(m_client_sockfd);
+            m_client_sockfd = -1;
             delete bd;
             return -1;
         }
@@ -141,11 +158,14 @@ int Session::recv_from_backend()
                     return bd->len;
                 }
                 else
+                {
+                    close(m_backend_sockfd);
+                    m_backend_sockfd = -1;
                     return -1;
+                }
             }
         }
         //continue
-        
         buf_desc * bd = new buf_desc;
         bd->len = recv(m_backend_sockfd, bd->buf, 4096, 0);
         if(bd->len > 0)
@@ -158,6 +178,8 @@ int Session::recv_from_backend()
         else
         {
             delete bd;
+            close(m_backend_sockfd);
+            m_backend_sockfd = -1;
             return -1;
         }
     }
@@ -187,6 +209,17 @@ int Session::send_to_client()
         }
         else
         {
+            close(m_client_sockfd);
+            m_client_sockfd = -1;
+            return -1;
+        }
+    }
+    else
+    {
+        if(m_backend_sockfd == -1)
+        {
+            close(m_client_sockfd);
+            m_client_sockfd = -1;
             return -1;
         }
     }
@@ -212,9 +245,19 @@ int Session::send_to_backend()
         }
         else
         {
+            close(m_backend_sockfd);
+            m_backend_sockfd = -1;
             return -1;
         }
     }
-    
+    else
+    {
+        if(m_client_sockfd == -1)
+        {
+            close(m_backend_sockfd);
+            m_backend_sockfd = -1;
+            return -1;
+        }
+    }
     return 0;
 }

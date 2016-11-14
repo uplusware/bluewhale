@@ -295,8 +295,7 @@ void Worker::Working()
                                 
                                 m_client_list[events[i].data.fd] = NULL;
                                 
-                                p_session->release(); //delete itself
-                                close(events[i].data.fd);
+                                p_session->release(events[i].data.fd); //delete itself
                         }
                     }
                     else if(m_backend_list[events[i].data.fd] != NULL)
@@ -311,10 +310,7 @@ void Worker::Working()
                             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
 
                             m_backend_list[events[i].data.fd] = NULL;
-                            p_session->release(); //delete itself
-                            close(events[i].data.fd);
-                           
-                            
+                            p_session->release(events[i].data.fd); //delete itself
                         }
                     }
                 }
@@ -332,8 +328,7 @@ void Worker::Working()
                             
                             m_client_list[events[i].data.fd] = NULL;
                                 
-                            p_session->release(); //delete itself
-                            close(events[i].data.fd);
+                            p_session->release(events[i].data.fd); //delete itself
                         }
                     }
                     else if(m_backend_list[events[i].data.fd] != NULL)
@@ -347,8 +342,7 @@ void Worker::Working()
                             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
                             
                             m_backend_list[events[i].data.fd] = NULL;
-                            p_session->release(); //delete itself
-                            close(events[i].data.fd);
+                            p_session->release(events[i].data.fd); //delete itself
                         }
                     }
                 }
@@ -366,8 +360,7 @@ void Worker::Working()
 
                             m_client_list[events[i].data.fd] = NULL;
                                 
-                            p_session->release(); //delete itself
-                            close(events[i].data.fd);
+                            p_session->release(events[i].data.fd); //delete itself
                         }
                     }
                     else if(m_backend_list[events[i].data.fd] != NULL)
@@ -382,8 +375,7 @@ void Worker::Working()
                             
                             m_backend_list[events[i].data.fd] = NULL;
                             
-                            p_session->release(); //delete itself
-                            close(events[i].data.fd);
+                            p_session->release(events[i].data.fd); //delete itself
                         }
                     }
                 }
@@ -571,7 +563,6 @@ void Service::ReloadExtension()
 
 int Service::create_server_socket(int& sockfd, const char* hostip, unsigned short port)
 {
-    CUplusTrace uTrace(LOGNAME, LCKNAME);
     int nFlag;
     struct addrinfo hints;
     struct addrinfo *server_addr, *rp;
@@ -624,7 +615,7 @@ int Service::create_server_socket(int& sockfd, const char* hostip, unsigned shor
     if(listen(sockfd, 128) == -1)
     {
         perror("listen");
-        uTrace.Write(Trace_Error, "Service LISTEN error.");
+        fprintf(stderr, "Service LISTEN error, %s:%u", hostip ? hostip : "", port);
         return -1;;
     }
     
@@ -662,10 +653,6 @@ int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https,
     {
         m_ip = 0; 
     }
-    
-    backhost_ip = m_backend_host_list[gate][m_ip%m_backend_host_list.size()].ip;
-    backhost_port = m_backend_host_list[gate][m_ip% m_backend_host_list.size()].port;
-    
     
     client_ip = szclientip;
     
@@ -712,10 +699,21 @@ int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https,
         return -1;
     }
     
+    map<string, vector<backend_host_t> >::iterator backend_host_group = m_backend_host_list.find(gate);
+    
+    if(backend_host_group == m_backend_host_list.end() || backend_host_group->second.size() == 0)
+    {
+        return -1;
+    }
+    
+    int backend_host_index = m_ip % backend_host_group->second.size();
+    backhost_ip = backend_host_group->second[backend_host_index].ip;
+    backhost_port = backend_host_group->second[backend_host_index].port;
+    
     return 0;
 }
 
-void Service::ReloadBackend()
+void Service::ReloadBackend(CUplusTrace& uTrace)
 {
     m_backend_host_list.clear();
     TiXmlDocument xmlBackendDoc;
@@ -746,7 +744,15 @@ void Service::ReloadBackend()
                 
                 backend_host.gate = pChildNode->ToElement()->Attribute("gate") ? pChildNode->ToElement()->Attribute("gate") : "";
                 strtrim(backend_host.gate);
-                m_backend_host_list[backend_host.gate].push_back(backend_host);
+                
+                if(backend_host.ip != "" && backend_host.port > 0 && backend_host.gate != "")
+                {
+                    m_backend_host_list[backend_host.gate].push_back(backend_host);
+                    uTrace.Write(Trace_Msg, "Load backend: %s%s@[%s:%u]->%s", backend_host.protocol.c_str(),
+                        backend_host.is_ssl ? "S" : "",
+                        backend_host.ip.c_str(),
+                        backend_host.port, backend_host.gate.c_str());
+                }
             }
             pChildNode = pChildNode->NextSibling("backend");
         }
@@ -755,8 +761,7 @@ void Service::ReloadBackend()
 
 int Service::Run(int fd)
 {	
-	CUplusTrace uTrace(LOGNAME, LCKNAME);
-
+    CUplusTrace uTrace(LOGNAME, LCKNAME);
 	unsigned int result = 0;
 	string strqueue = "/.bwgated_";
 	strqueue += m_service_name;
@@ -912,6 +917,11 @@ int Service::Run(int fd)
                         if(m_service_list[service_content->sockfd] != NULL)
                             delete m_service_list[service_content->sockfd];
                         m_service_list[service_content->sockfd] = service_content;
+                        
+                       uTrace.Write(Trace_Msg, "Create service: %s%s@[%s:%u]", service_content->protocol.c_str(),
+                            service_content->is_ssl ? "S" : "",
+                            service_content->ip.c_str(),
+                            service_content->port);
                     }
                 }
                 pChildNode = pChildNode->NextSibling("service");
@@ -919,7 +929,7 @@ int Service::Run(int fd)
         }
         
         
-        ReloadBackend();
+        ReloadBackend(uTrace);
         
 		int nFlag;
 
@@ -956,7 +966,7 @@ int Service::Run(int fd)
 				{
 					bwgate_base::UnLoadConfig();
 					bwgate_base::LoadConfig();
-                    ReloadBackend();
+                    ReloadBackend(uTrace);
 				}
 				else if(pQMsg->cmd == MSG_ACCESS_RELOAD)
 				{
@@ -1013,6 +1023,7 @@ int Service::Run(int fd)
                     string client_ip;
                     string backend_ip;
                     unsigned short backend_port;
+                    
                     if(create_client_socket(sz_gate, clt_sockfd, false, clt_addr, clt_size, client_ip, backend_ip, backend_port) < 0)
                         continue;
                     
