@@ -34,18 +34,21 @@ test -x /tmp/bwgated || mkdir /tmp/bwgated
 test -x /etc/bwgated || mkdir /etc/bwgated
 test -x /var/bwgated || mkdir /var/bwgated
 
+test -x /etc/bwgated/bwgated.conf && mv /etc/bwgated/bwgated.conf /etc/bwgated/bwgated.conf.$((`date "+%Y%m%d%H%M%S"`))
+
 cp -f ${path}/bwgated.conf /etc/bwgated/bwgated.conf
 chmod 600 /etc/bwgated/bwgated.conf
 
-cp -f ${path}/permit.list /etc/bwgated/permit.list
+test -x /etc/bwgated/permit.list || cp -f ${path}/permit.list /etc/bwgated/permit.list
 chmod a-x /etc/bwgated/permit.list
-cp -f ${path}/reject.list /etc/bwgated/reject.list
+
+test -x /etc/bwgated/reject.list || cp -f ${path}/reject.list /etc/bwgated/reject.list
 chmod a-x /etc/bwgated/reject.list
 
-cp -f ${path}/services.xml /etc/bwgated/services.xml
+test -x /etc/bwgated/services.xml || cp -f ${path}/services.xml /etc/bwgated/services.xml
 chmod a-x /etc/bwgated/services.xml
 
-cp -f ${path}/backends.xml /etc/bwgated/backends.xml
+test -x /etc/bwgated/backends.xml || cp -f ${path}/backends.xml /etc/bwgated/backends.xml
 chmod a-x /etc/bwgated/backends.xml
 
 

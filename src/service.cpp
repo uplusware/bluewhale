@@ -762,6 +762,7 @@ void Service::ReloadBackend(CUplusTrace& uTrace)
 int Service::Run(int fd)
 {	
     CUplusTrace uTrace(LOGNAME, LCKNAME);
+    
 	unsigned int result = 0;
 	string strqueue = "/.bwgated_";
 	strqueue += m_service_name;
@@ -816,7 +817,9 @@ int Service::Run(int fd)
         
 		WORK_PROCESS_INFO  wpinfo;
 		if (socketpair(AF_UNIX, SOCK_DGRAM, 0, wpinfo.sockfds) < 0)
-			fprintf(stderr, "socketpair error, %s %d\n", __FILE__, __LINE__);
+        {
+			uTrace.Write(Trace_Error, "socketpair error, errno = %d, %s, %s %d", errno, strerror(errno), __FILE__, __LINE__);
+        }
         
         nFlag = fcntl(wpinfo.sockfds[0], F_GETFL, 0);
         fcntl(wpinfo.sockfds[0], F_SETFL, nFlag|O_NONBLOCK);
@@ -851,7 +854,7 @@ int Service::Run(int fd)
 		}
 		else
 		{
-			fprintf(stderr, "fork error, work_pid = %d, %S %d\n", work_pid, __FILE__, __LINE__);
+			uTrace.Write(Trace_Error, "fork error, work_pid = %d, errno = %d, %s, %s %d", work_pid, errno, strerror(errno), __FILE__, __LINE__);
 		}
 	}
     
@@ -864,7 +867,7 @@ int Service::Run(int fd)
         epoll_fd = epoll_create1(0);
         if (epoll_fd == -1)  
         {  
-          perror ("epoll_create1");  
+          uTrace.Write(Trace_Error, "epoll_create1 errno = %d, %s, %s %d", errno, strerror(errno), __FILE__, __LINE__);  
           abort ();  
         }
         if(m_service_list)
@@ -992,7 +995,7 @@ int Service::Run(int fd)
 			{
 				if(errno != ETIMEDOUT && errno != EINTR && errno != EMSGSIZE)
 				{
-					fprintf(stderr, "mq_timedreceive error, errno = %d, %S %d\n", errno, __FILE__, __LINE__);
+					uTrace.Write(Trace_Error, "mq_timedreceive error, errno = %d, %s, %s %d\n", errno, strerror(errno), __FILE__, __LINE__);
 					svr_exit = TRUE;
 					break;
 				}
