@@ -21,8 +21,11 @@ typedef enum
 	stGATE = 1,
 } Service_Type;
 
+#define BUF_DESC_MAX_SIZE     4096
+#define BUF_DESC_REUSE_SIZE   (BUF_DESC_MAX_SIZE - BUF_DESC_MAX_SIZE/4)
+
 typedef struct{
-    char buf[4096];
+    char buf[BUF_DESC_MAX_SIZE];
     unsigned int len;
     unsigned int cur;
 }buf_desc;
@@ -38,9 +41,12 @@ protected:
     list<buf_desc*> m_backend_bufs;
     
     int m_use_count;
+    //this class only could be created in heap.    
+    virtual ~Session();
+    
 public:
 	Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port);
-	virtual ~Session();
+	
     
     int get_backendsockfd() { return m_backend_sockfd; }
     int get_clientsockfd() { return m_client_sockfd; }

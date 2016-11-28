@@ -103,9 +103,9 @@ int Session::recv_from_client()
         if(m_client_bufs.size() > 0)
         {
             buf_desc * bd = m_client_bufs.back();
-            if(bd->len <= 1024*3)
+            if(bd->len <= BUF_DESC_REUSE_SIZE)
             {
-                int r = recv(m_client_sockfd, bd->buf + bd->len, 4096 - bd->len, 0);
+                int r = recv(m_client_sockfd, bd->buf + bd->len, BUF_DESC_MAX_SIZE - bd->len, 0);
                 if(r > 0)
                 {
                     bd->len += r;
@@ -121,7 +121,7 @@ int Session::recv_from_client()
         }
         //continue
         buf_desc * bd = new buf_desc;
-        bd->len = recv(m_client_sockfd, bd->buf, 4096, 0);
+        bd->len = recv(m_client_sockfd, bd->buf, BUF_DESC_MAX_SIZE, 0);
         if(bd->len > 0)
         {
             bd->cur = 0;
@@ -149,9 +149,9 @@ int Session::recv_from_backend()
         if(m_backend_bufs.size() > 0)
         {
             buf_desc * bd = m_backend_bufs.back();
-            if(bd->len <= 1024*3)
+            if(bd->len <= BUF_DESC_REUSE_SIZE)
             {
-                int r = recv(m_backend_sockfd, bd->buf + bd->len, 4096 - bd->len, 0);
+                int r = recv(m_backend_sockfd, bd->buf + bd->len, BUF_DESC_MAX_SIZE - bd->len, 0);
                 if(r > 0)
                 {
                     bd->len += r;
@@ -167,7 +167,7 @@ int Session::recv_from_backend()
         }
         //continue
         buf_desc * bd = new buf_desc;
-        bd->len = recv(m_backend_sockfd, bd->buf, 4096, 0);
+        bd->len = recv(m_backend_sockfd, bd->buf, BUF_DESC_MAX_SIZE, 0);
         if(bd->len > 0)
         {
             bd->cur = 0;

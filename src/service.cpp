@@ -20,8 +20,8 @@
 #include "util/trace.h"
 #include "tinyxml/tinyxml.h"
 
-#define MAX_EVENTS_NUM  65536
-#define MAX_SOCKFD_NUM  65536
+#define MAX_EVENTS_NUM  655360
+#define MAX_SOCKFD_NUM  655360
 
 enum CLIENT_PARAM_CTRL{
 	SessionParamData = 0,

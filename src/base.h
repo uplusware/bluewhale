@@ -5,7 +5,6 @@
 #ifndef _MAILSYS_H_
 #define _MAILSYS_H_
 
-#define CONFIG_FILTER_PATH	"/etc/bwgated/mfilter.xml"
 #define CONFIG_FILE_PATH	"/etc/bwgated/bwgated.conf"
 #define PERMIT_FILE_PATH	"/etc/bwgated/permit.list"
 #define REJECT_FILE_PATH	"/etc/bwgated/reject.list"
@@ -172,13 +171,11 @@ public:
 					
 			FD_SET(sockfd, &mask);
 			res = select(sockfd + 1, &mask, NULL, NULL, &timeout);
-			//printf("%d %d\n", sockfd, res);
 			if( res == 1) 
 			{
 				taketime = 0;
 				len = recv(sockfd, pbuf + nRecv, blen - nRecv, 0);
-				//printf("len: %d\n", len);
-                if(len == 0)
+				if(len == 0)
                 {
                     close(sockfd);
                     return -1;
@@ -214,8 +211,7 @@ public:
 			else if(res == 0)
 			{
 				taketime = taketime + 1;
-                //printf("%p: %d %d\n", this, sockfd, taketime);
-				if(taketime > MAX_TRY_TIMEOUT)
+                if(taketime > MAX_TRY_TIMEOUT)
 				{
 					close(sockfd);
 					return -1;
@@ -224,8 +220,7 @@ public:
 			}
 			else
 			{
-                //printf("%p: closed\n", this);
-				return -1;
+                return -1;
 			}
 			
 		}
