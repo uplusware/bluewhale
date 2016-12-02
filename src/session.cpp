@@ -43,6 +43,7 @@ Session::Session(int sockfd, const char* clientip, const char* backhost_ip, unsi
        return;
     }
     
+    BOOL connected = FALSE;
     for (rp = server_addr; rp != NULL; rp = rp->ai_next)
     {
        m_backend_sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
@@ -52,11 +53,20 @@ Session::Session(int sockfd, const char* clientip, const char* backhost_ip, unsi
 	    int flags = fcntl(m_backend_sockfd, F_GETFL, 0); 
 	    fcntl(m_backend_sockfd, F_SETFL, flags | O_NONBLOCK);
 	
-        connect(m_backend_sockfd, rp->ai_addr, rp->ai_addrlen);
-        break;
+        s = connect(m_backend_sockfd, rp->ai_addr, rp->ai_addrlen);
+        if(s == 0 || (s == -1 && errno == EINPROGRESS))
+        {
+            connected = TRUE;
+            break;
+        }
     }
 
     freeaddrinfo(server_addr);           /* No longer needed */
+    if(!connected)
+    {
+         throw(new string("connect error"));
+         return;
+    }
     
 }
 
