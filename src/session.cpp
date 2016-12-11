@@ -96,13 +96,11 @@ Session::~Session()
     
     if(m_backend_sockfd > 0)
     {
-        close(m_backend_sockfd);
-        m_backend_sockfd = -1;
+        close_sockfd(m_backend_sockfd);
     }
     if(m_client_sockfd > 0)
     {
-        close(m_client_sockfd);
-        m_client_sockfd = -1;
+        close_sockfd(m_client_sockfd);
     }
 }
 
@@ -123,8 +121,7 @@ int Session::recv_from_client()
                 }
                 else
                 {
-                    close(m_client_sockfd);
-                    m_client_sockfd = -1;
+                    close_sockfd(m_client_sockfd);
                     return -1;
                 }
             }
@@ -141,8 +138,7 @@ int Session::recv_from_client()
         }
         else
         {
-            close(m_client_sockfd);
-            m_client_sockfd = -1;
+            close_sockfd(m_client_sockfd);
             delete bd;
             return -1;
         }
@@ -169,8 +165,7 @@ int Session::recv_from_backend()
                 }
                 else
                 {
-                    close(m_backend_sockfd);
-                    m_backend_sockfd = -1;
+                    close_sockfd(m_backend_sockfd);
                     return -1;
                 }
             }
@@ -188,8 +183,7 @@ int Session::recv_from_backend()
         else
         {
             delete bd;
-            close(m_backend_sockfd);
-            m_backend_sockfd = -1;
+            close_sockfd(m_backend_sockfd);
             return -1;
         }
     }
@@ -219,8 +213,7 @@ int Session::send_to_client()
         }
         else
         {
-            close(m_client_sockfd);
-            m_client_sockfd = -1;
+            close_sockfd(m_client_sockfd);
             return -1;
         }
     }
@@ -228,8 +221,7 @@ int Session::send_to_client()
     {
         if(m_backend_sockfd == -1)
         {
-            close(m_client_sockfd);
-            m_client_sockfd = -1;
+            close_sockfd(m_client_sockfd);
             return -1;
         }
     }
@@ -255,8 +247,7 @@ int Session::send_to_backend()
         }
         else
         {
-            close(m_backend_sockfd);
-            m_backend_sockfd = -1;
+            close_sockfd(m_backend_sockfd);
             return -1;
         }
     }
@@ -264,8 +255,7 @@ int Session::send_to_backend()
     {
         if(m_client_sockfd == -1)
         {
-            close(m_backend_sockfd);
-            m_backend_sockfd = -1;
+            close_sockfd(m_backend_sockfd);
             return -1;
         }
     }
