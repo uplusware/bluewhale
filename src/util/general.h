@@ -211,13 +211,6 @@ void __inline__ fnln_strcut(const char* text, const char* begstring, const char*
 		strDest = strText.substr(subfirst, sublen);
 }
 
-void inline close_sockfd(int& sockfd)
-{
-    if(sockfd > 0)
-        close(sockfd);
-    sockfd = -1;
-}
-
 #define WAIT_TIME_INTERVAL 1
 #define MAX_TRY_TIMEOUT 20
 

@@ -5,6 +5,13 @@
 
 #include "session.h"
 
+void close_sockfd(int& sockfd)
+{
+    if(sockfd > 0)
+        close(sockfd);
+    sockfd = -1;
+}
+
 Session::Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port)
 {
     m_client_bufs.clear();
