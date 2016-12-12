@@ -216,7 +216,7 @@ public:
 
 protected:
     int create_client_socket(const char* gate, int& clt_sockfd, BOOL https, struct sockaddr_storage& clt_addr, socklen_t clt_size,
-        string& client_ip, string& backhost_ip, unsigned short& backhost_port);
+        string& client_ip, string& backhost_ip, unsigned short& backhost_port, unsigned int& ip_lowbytes);
 
     int create_server_socket(int& sockfd, const char* hostip, unsigned short port);
     
@@ -228,13 +228,11 @@ protected:
 	
     list<pid_t> m_child_list;
 	vector<WORK_PROCESS_INFO> m_work_processes;
+    unsigned int m_next_process;
     
     service_content_t** m_service_list;
-   
     
     map<string, vector<backend_host_t> > m_backend_host_list;
-    
-    unsigned int m_ip;
 };
 
 #endif /* _SERVICE_H_ */

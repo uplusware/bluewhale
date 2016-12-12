@@ -8,8 +8,10 @@
 void close_sockfd(int& sockfd)
 {
     if(sockfd > 0)
+    {
         close(sockfd);
-    sockfd = -1;
+        /* printf("close fd: %d on %u\n", sockfd, getpid()); */
+    }
 }
 
 Session::Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port)
@@ -118,37 +120,52 @@ int Session::recv_from_client()
         if(m_client_bufs.size() > 0)
         {
             buf_desc * bd = m_client_bufs.back();
-            if(bd->len <= BUF_DESC_REUSE_SIZE)
-            {
-                int r = recv(m_client_sockfd, bd->buf + bd->len, BUF_DESC_MAX_SIZE - bd->len, 0);
-                if(r > 0)
+            do{
+                if(bd->len <= BUF_DESC_REUSE_SIZE)
                 {
-                    bd->len += r;
-                    return bd->len;
+                    int r = recv(m_client_sockfd, bd->buf + bd->len, BUF_DESC_MAX_SIZE - bd->len, 0);
+                    if(r > 0)
+                    {
+                        bd->len += r;
+                        return bd->len;
+                    }
+                    else
+                    {
+                        if(errno == EAGAIN)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            close_sockfd(m_client_sockfd);
+                            return -1;
+                        }
+                    }
                 }
-                else
-                {
-                    close_sockfd(m_client_sockfd);
-                    return -1;
-                }
-            }
+            }while(0);
         }
         //continue
         buf_desc * bd = new buf_desc;
-        bd->len = recv(m_client_sockfd, bd->buf, BUF_DESC_MAX_SIZE, 0);
-        if(bd->len > 0)
-        {
-            bd->cur = 0;
-            m_client_bufs.push_back(bd);
-            send_to_backend();
-            return bd->len;
-        }
-        else
-        {
-            close_sockfd(m_client_sockfd);
-            delete bd;
-            return -1;
-        }
+        do{
+            bd->len = recv(m_client_sockfd, bd->buf, BUF_DESC_MAX_SIZE, 0);
+            if(bd->len > 0)
+            {
+                bd->cur = 0;
+                m_client_bufs.push_back(bd);
+                send_to_backend();
+                return bd->len;
+            }
+            else
+            {
+                if(errno == EAGAIN)
+                {
+                    continue;
+                }
+                delete bd;
+                close_sockfd(m_client_sockfd);
+                return -1;
+            }
+        }while(0);
     }
     else
         send_to_backend();
@@ -164,35 +181,48 @@ int Session::recv_from_backend()
             buf_desc * bd = m_backend_bufs.back();
             if(bd->len <= BUF_DESC_REUSE_SIZE)
             {
-                int r = recv(m_backend_sockfd, bd->buf + bd->len, BUF_DESC_MAX_SIZE - bd->len, 0);
-                if(r > 0)
+                do
                 {
-                    bd->len += r;
-                    return bd->len;
-                }
-                else
-                {
-                    close_sockfd(m_backend_sockfd);
-                    return -1;
-                }
+                    int r = recv(m_backend_sockfd, bd->buf + bd->len, BUF_DESC_MAX_SIZE - bd->len, 0);
+                    if(r > 0)
+                    {
+                        bd->len += r;
+                        return bd->len;
+                    }
+                    else
+                    {
+                        if(errno == EAGAIN)
+                        {
+                            continue;
+                        }
+                        close_sockfd(m_backend_sockfd);
+                        return -1;
+                    }
+                } while(0);
             }
         }
         //continue
         buf_desc * bd = new buf_desc;
-        bd->len = recv(m_backend_sockfd, bd->buf, BUF_DESC_MAX_SIZE, 0);
-        if(bd->len > 0)
-        {
-            bd->cur = 0;
-            m_backend_bufs.push_back(bd);
-            send_to_client();
-            return bd->len;
-        }
-        else
-        {
-            delete bd;
-            close_sockfd(m_backend_sockfd);
-            return -1;
-        }
+        do{
+            bd->len = recv(m_backend_sockfd, bd->buf, BUF_DESC_MAX_SIZE, 0);
+            if(bd->len > 0)
+            {
+                bd->cur = 0;
+                m_backend_bufs.push_back(bd);
+                send_to_client();
+                return bd->len;
+            }
+            else
+            {
+                if(errno == EAGAIN)
+                {
+                    continue;
+                }
+                delete bd;
+                close_sockfd(m_backend_sockfd);
+                return -1;
+            }
+        }while(0);
     }
     else
         send_to_client();
@@ -204,25 +234,30 @@ int Session::send_to_client()
     if(m_backend_bufs.size() > 0)
     {
         buf_desc * bd = m_backend_bufs.front();
-        
-        int s = send(m_client_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
-        if(s > 0)
-        {
-            
-            bd->cur += s;
-            if(bd->cur == bd->len)
+        do{
+            int s = send(m_client_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
+            if(s > 0)
             {
-                delete bd;
-                m_backend_bufs.pop_front();
+                
+                bd->cur += s;
+                if(bd->cur == bd->len)
+                {
+                    delete bd;
+                    m_backend_bufs.pop_front();
+                }
+                
+                return s;
             }
-            
-            return s;
-        }
-        else
-        {
-            close_sockfd(m_client_sockfd);
-            return -1;
-        }
+            else
+            {
+                if(errno == EAGAIN)
+                {
+                    continue;
+                }
+                close_sockfd(m_client_sockfd);
+                return -1;
+            }
+        }while(0);
     }
     else
     {
@@ -241,22 +276,28 @@ int Session::send_to_backend()
     if(m_client_bufs.size() > 0)
     {
         buf_desc * bd = m_client_bufs.front();
-        int s = send(m_backend_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
-        if(s > 0)
-        {
-            bd->cur += s;
-            if(bd->cur == bd->len)
+        do{
+            int s = send(m_backend_sockfd, bd->buf + bd->cur, bd->len - bd->cur, 0);
+            if(s > 0)
             {
-                delete bd;
-                m_client_bufs.pop_front();
+                bd->cur += s;
+                if(bd->cur == bd->len)
+                {
+                    delete bd;
+                    m_client_bufs.pop_front();
+                }
+                return s;
             }
-            return s;
-        }
-        else
-        {
-            close_sockfd(m_backend_sockfd);
-            return -1;
-        }
+            else
+            {
+                if(errno == EAGAIN)
+                {
+                    continue;
+                }
+                close_sockfd(m_backend_sockfd);
+                return -1;
+            }
+        }while(0);
     }
     else
     {

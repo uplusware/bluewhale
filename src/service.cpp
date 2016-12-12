@@ -28,6 +28,15 @@ enum CLIENT_PARAM_CTRL{
 	SessionParamQuit
 };
 
+void close_fd(int fd)
+{
+    if(fd > 0)
+    {
+        /* printf("close fd: %d on %u\n", fd, getpid()); */
+        close(fd);
+    }
+}
+
 typedef struct {
 	CLIENT_PARAM_CTRL ctrl;
 	char client_ip[128];
@@ -57,8 +66,17 @@ static int send_sockfd(int sfd, int fd_file, CLIENT_PARAM* param)
     iov[0].iov_len = sizeof(CLIENT_PARAM);  
     msg.msg_iov = iov;  
     msg.msg_iovlen = 1;
-
-    return sendmsg(sfd, &msg, 0); 
+    int r = 0;
+    do{
+        r = sendmsg(sfd, &msg, MSG_DONTWAIT);
+        if(r < 0)
+        {
+            perror("sendmsg");
+            if(errno == EAGAIN)
+                continue;
+        }
+    }while(0);
+    return r;
 
 }
 
@@ -81,12 +99,16 @@ static int recv_sockfd(int sfd, int* fd_file, CLIENT_PARAM* param)
     iov[0].iov_len = sizeof(CLIENT_PARAM);  
     msg.msg_iov = iov;  
     msg.msg_iovlen = 1;
-
-    if((nrecv = recvmsg(sfd, &msg, 0)) <= 0)  
-    {  
-
-        return nrecv;  
-    }
+    
+    do{
+        nrecv = recvmsg(sfd, &msg, 0);
+        if(nrecv <= 0)  
+        {  
+            if(errno == EAGAIN)
+                continue;
+            return nrecv;  
+        }
+    } while(0);
 
     cmptr = CMSG_FIRSTHDR(&msg);  
     if((cmptr != NULL) && (cmptr->cmsg_len == CMSG_LEN(sizeof(int))))  
@@ -154,7 +176,7 @@ Worker::~Worker()
         {
             if(m_client_list[x] != NULL)
             {
-                close(x);
+                close_fd(x);
                 m_client_list[x]->release();
             }
         }
@@ -168,7 +190,7 @@ Worker::~Worker()
         {
             if(m_backend_list[x] != NULL)
             {
-                close(x);
+                close_fd(x);
                 m_backend_list[x]->release();
             }
         }
@@ -193,7 +215,7 @@ void Worker::Working()
     struct epoll_event * events = new struct epoll_event[bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn]; 
     
     event.data.fd = m_sockfd;  
-    event.events = EPOLLIN;
+    event.events = EPOLLIN | EPOLLHUP | EPOLLERR;
     int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, m_sockfd, &event); 
     if (s == -1)  
     {  
@@ -206,7 +228,7 @@ void Worker::Working()
         int n, i;  
   
         n = epoll_wait (epoll_fd, events, bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn, 1000);
-        
+
         for (i = 0; i < n; i++)  
         {
             if(events[i].data.fd == m_sockfd)
@@ -226,7 +248,7 @@ void Worker::Working()
 
                 if(client_param.ctrl == SessionParamQuit)
                 {
-                    printf("quit\n");
+                    printf("QUIT from worker %u\n", m_process_seq);
                     bQuit = true;
                 }
                 else
@@ -267,8 +289,8 @@ void Worker::Working()
                         int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, p_session->get_backendsockfd(), &event);  
                         if (s == -1)  
                         {  
-                             perror("epoll_ctl 3");  
-                            abort ();  
+                            perror("epoll_ctl 3");  
+                            abort ();
                         }
                         
                     }
@@ -379,6 +401,10 @@ void Worker::Working()
                         }
                     }
                 }
+                else
+                {
+                    printf("%08x, %d\n", events[i].events, events[i].data.fd);
+                }
             }
         }
 		
@@ -405,7 +431,7 @@ Service::~Service()
         {
             if(m_service_list[x] != NULL)
             {
-                close(x);
+                close_fd(x);
                 delete m_service_list[x];
             }
         }
@@ -598,7 +624,7 @@ int Service::create_server_socket(int& sockfd, const char* hostip, unsigned shor
        if (bind(sockfd, rp->ai_addr, rp->ai_addrlen) == 0)
            break;                  /* Success */
        perror("bind");
-       close(sockfd);
+       close_fd(sockfd);
     }
     
     if (rp == NULL)
@@ -622,7 +648,7 @@ int Service::create_server_socket(int& sockfd, const char* hostip, unsigned shor
     return 0;
 }
 int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https, struct sockaddr_storage& clt_addr, socklen_t clt_size,
-    string& client_ip, string& backhost_ip, unsigned short& backhost_port)
+    string& client_ip, string& backhost_ip, unsigned short& backhost_port, unsigned int& ip_lowbytes)
 {
     struct sockaddr_in * v4_addr;
     struct sockaddr_in6 * v6_addr;
@@ -633,10 +659,10 @@ int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https,
         v4_addr = (struct sockaddr_in*)&clt_addr;
         if(inet_ntop(AF_INET, (void*)&v4_addr->sin_addr, szclientip, INET6_ADDRSTRLEN) == NULL)
         {    
-            close(clt_sockfd);
+            close_fd(clt_sockfd);
             return 0;
         }
-        m_ip = ntohl(v4_addr->sin_addr.s_addr);
+        ip_lowbytes = ntohl(v4_addr->sin_addr.s_addr);
 
     }
     else if(clt_addr.ss_family == AF_INET6)
@@ -644,14 +670,14 @@ int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https,
         v6_addr = (struct sockaddr_in6*)&clt_addr;
         if(inet_ntop(AF_INET6, (void*)&v6_addr->sin6_addr, szclientip, INET6_ADDRSTRLEN) == NULL)
         {    
-            close(clt_sockfd);
+            close_fd(clt_sockfd);
             return 0;
         }
-        m_ip = ntohl(v6_addr->sin6_addr.s6_addr32[3]); 
+        ip_lowbytes = ntohl(v6_addr->sin6_addr.s6_addr32[3]); 
     }
     else
     {
-        m_ip = 0; 
+        ip_lowbytes = 0; 
     }
     
     client_ip = szclientip;
@@ -695,7 +721,7 @@ int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https,
     
     if(access_result == FALSE)
     {
-        close(clt_sockfd);
+        close_fd(clt_sockfd);
         return -1;
     }
     
@@ -706,7 +732,7 @@ int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https,
         return -1;
     }
     
-    int backend_host_index = m_ip % backend_host_group->second.size();
+    int backend_host_index = ip_lowbytes % backend_host_group->second.size();
     backhost_ip = backend_host_group->second[backend_host_index].ip;
     backhost_port = backend_host_group->second[backend_host_index].port;
     
@@ -802,13 +828,8 @@ int Service::Run(int fd)
 	clear_mqueue(m_service_qid);
 	
 	BOOL svr_exit = FALSE;
-	int queue_buf_len = attr.mq_msgsize;
-	char* queue_buf_ptr = (char*)malloc(queue_buf_len);
-
-	m_ip = 0;
     
-    int nFlag;
-    
+    int nFlag;  
     for(int i = 0; i < bwgate_base::m_max_instance_num; i++)
 	{
 		char pid_file[1024];
@@ -816,46 +837,56 @@ int Service::Run(int fd)
 		unlink(pid_file);
         
 		WORK_PROCESS_INFO  wpinfo;
-		if (socketpair(AF_UNIX, SOCK_DGRAM, 0, wpinfo.sockfds) < 0)
+        wpinfo.sockfds[0] = -1;
+        wpinfo.sockfds[1] = -1;
+        wpinfo.pid = 0;
+        if(bwgate_base::m_instance_prestart == TRUE)
         {
-			uTrace.Write(Trace_Error, "socketpair error, errno = %d, %s, %s %d", errno, strerror(errno), __FILE__, __LINE__);
-        }
-        
-        nFlag = fcntl(wpinfo.sockfds[0], F_GETFL, 0);
-        fcntl(wpinfo.sockfds[0], F_SETFL, nFlag|O_NONBLOCK);
-    
-		int work_pid = fork();
-		if(work_pid == 0)
-		{
-
-			if(lock_pid_file(pid_file) == false)
-			{
-				exit(-1);
-			}
-			close(wpinfo.sockfds[0]);
+            if (socketpair(AF_UNIX, SOCK_DGRAM, 0, wpinfo.sockfds) < 0)
+            {
+                uTrace.Write(Trace_Error, "socketpair error, errno = %d, %s, %s %d", errno, strerror(errno), __FILE__, __LINE__);
+            }
+            
+            nFlag = fcntl(wpinfo.sockfds[0], F_GETFL, 0);
+            fcntl(wpinfo.sockfds[0], F_SETFL, nFlag|O_NONBLOCK);
             
             nFlag = fcntl(wpinfo.sockfds[1], F_GETFL, 0);
             fcntl(wpinfo.sockfds[1], F_SETFL, nFlag|O_NONBLOCK);
-        
-			Worker* pWorker = new Worker(m_service_name.c_str(), i, wpinfo.sockfds[1]);
-			if(pWorker)
-			{
-				pWorker->Working();
-				delete pWorker;
-			}
-			close(wpinfo.sockfds[1]);
-			exit(0);
-		}
-		else if(work_pid > 0)
-		{
-			close(wpinfo.sockfds[1]);
-			wpinfo.pid = work_pid;
-			m_work_processes.push_back(wpinfo);
-		}
-		else
-		{
-			uTrace.Write(Trace_Error, "fork error, work_pid = %d, errno = %d, %s, %s %d", work_pid, errno, strerror(errno), __FILE__, __LINE__);
-		}
+                
+            int work_pid = fork();
+            if(work_pid == 0)
+            {
+                if(lock_pid_file(pid_file) == false)
+                {
+                    exit(-1);
+                }
+                close(wpinfo.sockfds[0]);
+                wpinfo.sockfds[0] = -1;
+            
+                Worker* pWorker = new Worker(m_service_name.c_str(), i, wpinfo.sockfds[1]);
+                if(pWorker)
+                {
+                    pWorker->Working();
+                    delete pWorker;
+                }
+                close(wpinfo.sockfds[1]);
+                wpinfo.sockfds[1] = -1;
+                exit(0);
+            }
+            else if(work_pid > 0)
+            {
+                close(wpinfo.sockfds[1]);
+                wpinfo.sockfds[1] = -1;
+                
+                wpinfo.pid = work_pid;
+                
+            }
+            else
+            {
+                uTrace.Write(Trace_Error, "fork error, work_pid = %d, errno = %d, %s, %s %d", work_pid, errno, strerror(errno), __FILE__, __LINE__);
+            }
+        }        
+        m_work_processes.push_back(wpinfo);
 	}
     
     int epoll_fd;
@@ -876,7 +907,7 @@ int Service::Run(int fd)
             {
                 if(m_service_list[x] != NULL)
                 {
-                    close(x);
+                    close_fd(x);
                     delete m_service_list[x];
                 }
             }
@@ -942,11 +973,19 @@ int Service::Run(int fd)
         struct timespec ts;
 		stQueueMsg* pQMsg;
 		int rc;
+        m_next_process = 0;
+        
 		while(1)
 		{	
-			waitpid(-1, NULL, WNOHANG);
-
+			pid_t w = waitpid(-1, NULL, WNOHANG);
+            if(w > 0)
+                printf("pid %u exits\n", w);
+            
 			clock_gettime(CLOCK_REALTIME, &ts);
+            
+            int queue_buf_len = attr.mq_msgsize;
+            char* queue_buf_ptr = (char*)malloc(queue_buf_len);
+    
 			rc = mq_timedreceive(m_service_qid, queue_buf_ptr, queue_buf_len, 0, &ts);
 
 			if( rc != -1)
@@ -958,8 +997,10 @@ int Service::Run(int fd)
 					{
 						CLIENT_PARAM client_param;
 						client_param.ctrl = SessionParamQuit;
-						
-						send_sockfd(m_work_processes[j].sockfds[0], 0, &client_param);
+						if(m_work_processes[j].sockfds[0] > 0)
+                        {
+                            send_sockfd(m_work_processes[j].sockfds[0], 0, &client_param);
+                        }
 					}
                     
 					svr_exit = TRUE;
@@ -1002,10 +1043,12 @@ int Service::Run(int fd)
 				
 			}
             
+            free(queue_buf_ptr);
+                
             int n, i;  
   
             n = epoll_wait (epoll_fd, events, bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn, 1000);
-            
+
             for (i = 0; i < n; i++)  
             {  
                 if(m_service_list[events[i].data.fd] != NULL)
@@ -1027,39 +1070,77 @@ int Service::Run(int fd)
                     string backend_ip;
                     unsigned short backend_port;
                     
-                    if(create_client_socket(sz_gate, clt_sockfd, false, clt_addr, clt_size, client_ip, backend_ip, backend_port) < 0)
+                    unsigned int ip_lowbytes;
+                    if(create_client_socket(sz_gate, clt_sockfd, false, clt_addr, clt_size, client_ip, backend_ip, backend_port, ip_lowbytes) < 0)
                         continue;
                     
+                    if(bwgate_base::m_instance_balance_scheme[0] == 'R')
+                    {
+                        m_next_process++;
+                        m_next_process = m_next_process % m_work_processes.size();
+                    }
+                    else
+                    {
+                        m_next_process = ip_lowbytes % m_work_processes.size();
+                    }
                     char pid_file[1024];
-                    sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid",
-                        m_service_name.c_str(), m_ip%m_work_processes.size());
-                    
+                    sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid", m_service_name.c_str(), m_next_process);
                     if(check_pid_file(pid_file) == true) /* The related process had crashed */
                     {
                         WORK_PROCESS_INFO  wpinfo;
+                        wpinfo.sockfds[0] = -1;
+                        wpinfo.sockfds[1] = -1;
+                        wpinfo.pid = 0;
+        
                         if (socketpair(AF_UNIX, SOCK_DGRAM, 0, wpinfo.sockfds) < 0)
+                        {
                             fprintf(stderr, "socketpair error, %s %d\n", __FILE__, __LINE__);
+                            continue;
+                        }
+                        nFlag = fcntl(wpinfo.sockfds[0], F_GETFL, 0);
+                        fcntl(wpinfo.sockfds[0], F_SETFL, nFlag|O_NONBLOCK);
                         
+                        nFlag = fcntl(wpinfo.sockfds[1], F_GETFL, 0);
+                        fcntl(wpinfo.sockfds[1], F_SETFL, nFlag|O_NONBLOCK);
+                            
                         int work_pid = fork();
                         if(work_pid == 0)
                         {
+                            close_fd(clt_sockfd);
                             if(lock_pid_file(pid_file) == false)
                             {
                                 exit(-1);
                             }
-                            close(wpinfo.sockfds[0]);
-                            Worker * pWorker = new Worker(m_service_name.c_str(), m_ip%m_work_processes.size(),
-                                wpinfo.sockfds[1]);
-                            pWorker->Working();
-                            delete pWorker;
-                            close(wpinfo.sockfds[1]);
+                            close_fd(wpinfo.sockfds[0]);
+                            wpinfo.sockfds[0] = -1;
+                            uTrace.Write(Trace_Msg, "Create worker process [%u]", m_next_process);
+                            Worker* pWorker = new Worker(m_service_name.c_str(), m_next_process, wpinfo.sockfds[1]);
+                            if(pWorker)
+                            {
+                                pWorker->Working();
+                                delete pWorker;
+                            }
+                            close_fd(wpinfo.sockfds[1]);
+                            wpinfo.sockfds[1] = -1;
+                            uTrace.Write(Trace_Msg, "Quit from workder process [%d]\n", m_next_process);
                             exit(0);
                         }
                         else if(work_pid > 0)
                         {
-                            close(wpinfo.sockfds[1]);
+                            close_fd(wpinfo.sockfds[1]);
+                            wpinfo.sockfds[1] = -1;
+                            
                             wpinfo.pid = work_pid;
-                            m_work_processes[m_ip%m_work_processes.size()] = wpinfo;
+                            
+                            if(m_work_processes[m_next_process].sockfds[0] > 0)
+                                close(m_work_processes[m_next_process].sockfds[0]);
+                            
+                            if(m_work_processes[m_next_process].sockfds[1] > 0)
+                                close(m_work_processes[m_next_process].sockfds[1]);
+                            
+                            m_work_processes[m_next_process].sockfds[0] = wpinfo.sockfds[0];
+                            m_work_processes[m_next_process].sockfds[1] = wpinfo.sockfds[1];
+                            m_work_processes[m_next_process].pid = wpinfo.pid;
                         }
                         else
                         {
@@ -1077,16 +1158,18 @@ int Service::Run(int fd)
                     client_param.backend_port = backend_port;
 
                     client_param.ctrl = SessionParamData;
-                    send_sockfd(m_work_processes[m_ip%m_work_processes.size()].sockfds[0], clt_sockfd, &client_param);
-                    close(clt_sockfd); //have been send out to another process, so close it in the current process.
+                    if(m_work_processes[m_next_process].sockfds[0] > 0)
+                    {
+                        send_sockfd(m_work_processes[m_next_process].sockfds[0], clt_sockfd, &client_param);
+                    }
+                    close_fd(clt_sockfd); //have been send out to another process, so close it in the current process.
                 }   
             }
 		}
 	}
     delete[] events;
-    close(epoll_fd);
+    close_fd(epoll_fd);
     
-	free(queue_buf_ptr);
 	if(m_service_qid != (mqd_t)-1)
 		mq_close(m_service_qid);
 	if(m_service_sid != SEM_FAILED)

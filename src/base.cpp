@@ -20,6 +20,8 @@ string bwgate_base::m_hostip = "";
 
 unsigned int bwgate_base::m_instance_max_concurrent_conn = 4096;
 unsigned int bwgate_base::m_max_instance_num = 8;
+BOOL bwgate_base::m_instance_prestart = FALSE;
+string bwgate_base::m_instance_balance_scheme = "R";
 
 string	bwgate_base::m_config_file = CONFIG_FILE_PATH;
 string	bwgate_base::m_permit_list_file = PERMIT_FILE_PATH;
@@ -94,7 +96,18 @@ BOOL bwgate_base::LoadConfig()
 				strtrim(max_instance_num);
                 m_max_instance_num = atoi(max_instance_num.c_str());
 			}
-            
+            else if(strncasecmp(strline.c_str(), "InstancePrestart", strlen("InstancePrestart")) == 0)
+			{
+				string instance_prestart;
+				strcut(strline.c_str(), "=", NULL, instance_prestart );
+				strtrim(instance_prestart);
+				m_instance_prestart = (strcasecmp(instance_prestart.c_str(), "yes")) == 0 ? TRUE : FALSE;
+			}
+            else if(strncasecmp(strline.c_str(), "InstanceBalanceScheme", strlen("InstanceBalanceScheme")) == 0)
+			{
+				strcut(strline.c_str(), "=", NULL, m_instance_balance_scheme );
+				strtrim(m_instance_balance_scheme);
+			}
 			strline = "";
 		}
 		

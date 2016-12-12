@@ -247,6 +247,8 @@ public:
 	
 	static unsigned int	m_instance_max_concurrent_conn;
     static unsigned int	m_max_instance_num;
+    static BOOL m_instance_prestart;
+    static string m_instance_balance_scheme;
     
 	static string	m_config_file;
 	static string	m_permit_list_file;
