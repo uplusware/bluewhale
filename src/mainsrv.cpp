@@ -75,6 +75,7 @@ static int Run()
             daemon_init();
             Service gate_srv(stGATE);
             gate_srv.Run(pfd[1]);
+            close(pfd[1]);
             exit(0);
         }
         else if(http_pid > 0)

@@ -742,9 +742,9 @@ int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https,
 void Service::ReloadBackend(CUplusTrace& uTrace)
 {
     m_backend_host_list.clear();
-    TiXmlDocument xmlBackendDoc;
-    xmlBackendDoc.LoadFile(bwgate_base::m_backend_list_file.c_str());
-    TiXmlElement * pRootElement = xmlBackendDoc.RootElement();
+    TiXmlDocument* xmlBackendDoc = new TiXmlDocument();
+    xmlBackendDoc->LoadFile(bwgate_base::m_backend_list_file.c_str());
+    TiXmlElement * pRootElement = xmlBackendDoc->RootElement();
     if(pRootElement)
     {
         TiXmlNode* pChildNode = pRootElement->FirstChild("backend");
@@ -783,6 +783,7 @@ void Service::ReloadBackend(CUplusTrace& uTrace)
             pChildNode = pChildNode->NextSibling("backend");
         }
     }
+    delete xmlBackendDoc;
 }
 
 int Service::Run(int fd)
@@ -914,9 +915,9 @@ int Service::Run(int fd)
             memset(m_service_list, 0, MAX_SOCKFD_NUM * sizeof(service_content_t*));
         }
         
-        TiXmlDocument xmlServicesDoc;
-        xmlServicesDoc.LoadFile(bwgate_base::m_service_list_file.c_str());
-        TiXmlElement * pRootElement = xmlServicesDoc.RootElement();
+        TiXmlDocument* xmlServicesDoc = new TiXmlDocument();
+        xmlServicesDoc->LoadFile(bwgate_base::m_service_list_file.c_str());
+        TiXmlElement * pRootElement = xmlServicesDoc->RootElement();
         if(pRootElement)
         {
             TiXmlNode* pChildNode = pRootElement->FirstChild("service");
@@ -961,7 +962,7 @@ int Service::Run(int fd)
                 pChildNode = pChildNode->NextSibling("service");
             }
         }
-        
+        delete xmlServicesDoc;
         
         ReloadBackend(uTrace);
         
