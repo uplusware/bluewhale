@@ -216,7 +216,7 @@ public:
 
 protected:
     int create_client_socket(const char* gate, int& clt_sockfd, BOOL https, struct sockaddr_storage& clt_addr, socklen_t clt_size,
-        string& client_ip, string& backhost_ip, unsigned short& backhost_port, unsigned int& ip_lowbytes);
+        string& client_ip, unsigned int& ip_lowbytes);
 
     int create_server_socket(int& sockfd, const char* hostip, unsigned short port);
     

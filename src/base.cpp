@@ -13,6 +13,7 @@
 string bwgate_base::m_sw_version = "0.1";
 
 //Global
+BOOL bwgate_base::m_close_stderr = TRUE;
 string bwgate_base::m_encoding = "UTF-8";
 
 string bwgate_base::m_localhostname = "localhost";
@@ -72,7 +73,14 @@ BOOL bwgate_base::LoadConfig()
 			
 		if(strncasecmp(strline.c_str(), "#", strlen("#")) != 0)
 		{	
-			if(strncasecmp(strline.c_str(), "LocalHostName", strlen("LocalHostName")) == 0)
+			if(strncasecmp(strline.c_str(), "CloseStderr", strlen("CloseStderr")) == 0)
+			{
+				string close_stderr;
+				strcut(strline.c_str(), "=", NULL, close_stderr );
+				strtrim(close_stderr);
+				m_close_stderr = (strcasecmp(close_stderr.c_str(), "yes")) == 0 ? TRUE : FALSE;
+			}
+            else if(strncasecmp(strline.c_str(), "LocalHostName", strlen("LocalHostName")) == 0)
 			{
 				strcut(strline.c_str(), "=", NULL, m_localhostname );
 				strtrim(m_localhostname);

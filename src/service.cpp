@@ -42,6 +42,12 @@ typedef struct {
 	char client_ip[128];
     char backend_ip[128];
     unsigned short backend_port;
+    
+    char backup_backend_ip1[128];
+    unsigned short backup_backend_port1;
+    
+    char backup_backend_ip2[128];
+    unsigned short backup_backend_port2;
 } CLIENT_PARAM;
 
 static int send_sockfd(int sfd, int fd_file, CLIENT_PARAM* param) 
@@ -71,7 +77,7 @@ static int send_sockfd(int sfd, int fd_file, CLIENT_PARAM* param)
         r = sendmsg(sfd, &msg, MSG_DONTWAIT);
         if(r < 0)
         {
-            perror("sendmsg");
+            fprintf(stderr, "%s %u# sendmsg: %s\n", __FILE__, __LINE__, strerror(errno));
             if(errno == EAGAIN)
                 continue;
         }
@@ -115,12 +121,12 @@ static int recv_sockfd(int sfd, int* fd_file, CLIENT_PARAM* param)
     {  
         if(cmptr->cmsg_level != SOL_SOCKET)  
         {  
-            printf("control level != SOL_SOCKET/n");  
-            exit(-1);  
+            fprintf(stderr, "control level != SOL_SOCKET/n");  
+            exit(-1); 
         }  
         if(cmptr->cmsg_type != SCM_RIGHTS)  
         {  
-            printf("control type != SCM_RIGHTS/n");  
+            fprintf(stderr, "control type != SCM_RIGHTS/n");  
             exit(-1);  
         } 
         *fd_file = *((int*)CMSG_DATA(cmptr));  
@@ -128,9 +134,9 @@ static int recv_sockfd(int sfd, int* fd_file, CLIENT_PARAM* param)
     else  
     {  
         if(cmptr == NULL)
-			printf("null cmptr, fd not passed.\n");  
+			fprintf(stderr, "null cmptr, fd not passed.\n");  
         else
-			printf("message len[%d] if incorrect.\n", cmptr->cmsg_len);  
+			fprintf(stderr, "message len[%d] if incorrect.\n", cmptr->cmsg_len);  
         *fd_file = -1; // descriptor was not passed  
     }   
     return *fd_file;  
@@ -206,9 +212,9 @@ void Worker::Working()
     int epoll_fd;
     epoll_fd = epoll_create1(0);
     if (epoll_fd == -1)  
-    {  
-      perror ("epoll_create1");  
-      abort ();  
+    {
+        fprintf(stderr, "%s %u# epoll_create1: %s\n", __FILE__, __LINE__, strerror(errno));
+        return;  
     }
         
     struct epoll_event event;  
@@ -219,8 +225,7 @@ void Worker::Working()
     int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, m_sockfd, &event); 
     if (s == -1)  
     {  
-        perror("epoll_ctl, 1");
-        abort();
+        fprintf(stderr, "%s %u# epoll_ctl: %s\n", __FILE__, __LINE__, strerror(errno));
         return;
     }
 	while(!bQuit)
@@ -235,69 +240,84 @@ void Worker::Working()
             {
                 int clt_sockfd;
                 CLIENT_PARAM client_param;
-                if(recv_sockfd(m_sockfd, &clt_sockfd, &client_param)  < 0)
-                {
-                    fprintf(stderr, "recv_sockfd < 0\n");
-                    continue;
-                }
-                if(clt_sockfd < 0)
+                if(recv_sockfd(m_sockfd, &clt_sockfd, &client_param)  < 0 && clt_sockfd < 0)
                 {
                     fprintf(stderr, "recv_sockfd error, clt_sockfd = %d %s %d\n", clt_sockfd, __FILE__, __LINE__);
-                    bQuit = true;
+                    continue;
                 }
 
                 if(client_param.ctrl == SessionParamQuit)
                 {
-                    printf("QUIT from worker %u\n", m_process_seq);
+                    printf("QUIT from Worker %u\n", m_process_seq);
                     bQuit = true;
                 }
                 else
                 {
-                    
                     event.data.fd = clt_sockfd;  
                     event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;  
-                    int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, clt_sockfd, &event);  
-                    if (s == -1)  
+                    if (epoll_ctl (epoll_fd, EPOLL_CTL_ADD, clt_sockfd, &event) == -1)  
                     {  
-                        perror("epoll_ctl 2");  
-                        abort ();  
+                        fprintf(stderr, "%s %u# epoll_ctl: %s\n", __FILE__, __LINE__, strerror(errno));
+                        bQuit = true;
+                        break;
                     }
                     
-                    try {
+                    Session * pSession = NULL;
                         
-                        Session * p_session = new Session(clt_sockfd, client_param.client_ip, client_param.backend_ip, client_param.backend_port);
-                        
-                        p_session->accquire();
-                        
-                        if(m_client_list[p_session->get_clientsockfd()] != NULL)
-                        {
-                            m_client_list[p_session->get_clientsockfd()]->release();
-                        }
-                        m_client_list[p_session->get_clientsockfd()] = p_session;
-                        
-                        p_session->accquire();
-                        
-                        if(m_backend_list[p_session->get_backendsockfd()] != NULL)
-                        {
-                            m_backend_list[p_session->get_backendsockfd()]->release();
-                        }
-                        m_backend_list[p_session->get_backendsockfd()] = p_session;
-                        
-                        event.data.fd = p_session->get_backendsockfd();  
-                        event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR; 
-                    
-                        int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, p_session->get_backendsockfd(), &event);  
-                        if (s == -1)  
-                        {  
-                            perror("epoll_ctl 3");  
-                            abort ();
-                        }
-                        
+                    try { /* try connect 1st backend */
+                        pSession = new Session(clt_sockfd, client_param.client_ip, client_param.backend_ip, client_param.backend_port);
                     }
                     catch(string* e)
                     {
-                        printf("%s\n", e->c_str());
+                        fprintf(stderr, "%s\n", e->c_str());
                         delete e;
+                        
+                        try {/* try connect 2nd backend */
+                            pSession = new Session(clt_sockfd, client_param.client_ip, client_param.backup_backend_ip1, client_param.backup_backend_port1);
+                        }
+                        catch(string* e)
+                        {
+                            fprintf(stderr, "%s\n", e->c_str());
+                            delete e;
+                            
+                            try { /* try connect 3nd backend */
+                                pSession = new Session(clt_sockfd, client_param.client_ip, client_param.backup_backend_ip2, client_param.backup_backend_port2);
+                            }
+                            catch(string* e)
+                            {
+                                fprintf(stderr, "%s\n", e->c_str());
+                                delete e;
+                            }
+                        }
+                    }
+                    
+                    if(pSession)
+                    {
+                        pSession->accquire();
+                        
+                        if(m_client_list[pSession->get_clientsockfd()] != NULL)
+                        {
+                            m_client_list[pSession->get_clientsockfd()]->release();
+                        }
+                        m_client_list[pSession->get_clientsockfd()] = pSession;
+                        
+                        pSession->accquire();
+                        
+                        if(m_backend_list[pSession->get_backendsockfd()] != NULL)
+                        {
+                            m_backend_list[pSession->get_backendsockfd()]->release();
+                        }
+                        m_backend_list[pSession->get_backendsockfd()] = pSession;
+                        
+                        event.data.fd = pSession->get_backendsockfd();  
+                        event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR; 
+                    
+                        int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, pSession->get_backendsockfd(), &event);  
+                        if (s == -1)  
+                        {  
+                            fprintf(stderr, "%s %u# epoll_ctl: %s\n", __FILE__, __LINE__, strerror(errno));
+                            bQuit = true;
+                        }
                     }
                 }
             }
@@ -307,8 +327,8 @@ void Worker::Working()
                 {
                     if(m_client_list[events[i].data.fd] != NULL)
                     {
-                        Session* p_session = m_client_list[events[i].data.fd];
-                        if(p_session && p_session->recv_from_client() < 0)
+                        Session* pSession = m_client_list[events[i].data.fd];
+                        if(pSession && pSession->recv_from_client() < 0)
                         {
                                 struct epoll_event ev;
                                 ev.events = EPOLLIN;
@@ -317,13 +337,13 @@ void Worker::Working()
                                 
                                 m_client_list[events[i].data.fd] = NULL;
                                 
-                                p_session->release(events[i].data.fd); //delete itself
+                                pSession->release(events[i].data.fd); //delete itself
                         }
                     }
                     else if(m_backend_list[events[i].data.fd] != NULL)
                     {
-                        Session* p_session = m_backend_list[events[i].data.fd];
-                        if(p_session && p_session->recv_from_backend() < 0)
+                        Session* pSession = m_backend_list[events[i].data.fd];
+                        if(pSession && pSession->recv_from_backend() < 0)
                         {
                             
                             struct epoll_event ev;
@@ -332,7 +352,7 @@ void Worker::Working()
                             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
 
                             m_backend_list[events[i].data.fd] = NULL;
-                            p_session->release(events[i].data.fd); //delete itself
+                            pSession->release(events[i].data.fd); //delete itself
                         }
                     }
                 }
@@ -340,8 +360,8 @@ void Worker::Working()
                 {
                     if(m_client_list[events[i].data.fd] != NULL)
                     {
-                        Session* p_session = m_client_list[events[i].data.fd];
-                        if(p_session && p_session->send_to_client() < 0)
+                        Session* pSession = m_client_list[events[i].data.fd];
+                        if(pSession && pSession->send_to_client() < 0)
                         {
                             struct epoll_event ev;
                             ev.events = EPOLLOUT;
@@ -350,13 +370,13 @@ void Worker::Working()
                             
                             m_client_list[events[i].data.fd] = NULL;
                                 
-                            p_session->release(events[i].data.fd); //delete itself
+                            pSession->release(events[i].data.fd); //delete itself
                         }
                     }
                     else if(m_backend_list[events[i].data.fd] != NULL)
                     {
-                        Session* p_session = m_backend_list[events[i].data.fd];
-                        if(p_session && p_session->send_to_backend() < 0)
+                        Session* pSession = m_backend_list[events[i].data.fd];
+                        if(pSession && pSession->send_to_backend() < 0)
                         {
                             struct epoll_event ev;
                             ev.events = EPOLLOUT;
@@ -364,7 +384,7 @@ void Worker::Working()
                             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
                             
                             m_backend_list[events[i].data.fd] = NULL;
-                            p_session->release(events[i].data.fd); //delete itself
+                            pSession->release(events[i].data.fd); //delete itself
                         }
                     }
                 }
@@ -372,8 +392,8 @@ void Worker::Working()
                 {
                     if(m_client_list[events[i].data.fd] != NULL)
                     {
-                        Session* p_session = m_client_list[events[i].data.fd];
-                        if(p_session)
+                        Session* pSession = m_client_list[events[i].data.fd];
+                        if(pSession)
                         {
                             struct epoll_event ev;
                             ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
@@ -382,13 +402,13 @@ void Worker::Working()
 
                             m_client_list[events[i].data.fd] = NULL;
                                 
-                            p_session->release(events[i].data.fd); //delete itself
+                            pSession->release(events[i].data.fd); //delete itself
                         }
                     }
                     else if(m_backend_list[events[i].data.fd] != NULL)
                     {
-                        Session* p_session = m_backend_list[events[i].data.fd];
-                        if(p_session)
+                        Session* pSession = m_backend_list[events[i].data.fd];
+                        if(pSession)
                         {
                             struct epoll_event ev;
                             ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
@@ -397,13 +417,9 @@ void Worker::Working()
                             
                             m_backend_list[events[i].data.fd] = NULL;
                             
-                            p_session->release(events[i].data.fd); //delete itself
+                            pSession->release(events[i].data.fd); //delete itself
                         }
                     }
-                }
-                else
-                {
-                    printf("%08x, %d\n", events[i].events, events[i].data.fd);
                 }
             }
         }
@@ -623,13 +639,12 @@ int Service::create_server_socket(int& sockfd, const char* hostip, unsigned shor
     
        if (bind(sockfd, rp->ai_addr, rp->ai_addrlen) == 0)
            break;                  /* Success */
-       perror("bind");
+       fprintf(stderr, "%s %u# bind: %s\n", __FILE__, __LINE__, strerror(errno));
        close_fd(sockfd);
     }
     
     if (rp == NULL)
     {               /* No address succeeded */
-          fprintf(stderr, "Could not bind\n");
           return -1;
     }
 
@@ -640,15 +655,14 @@ int Service::create_server_socket(int& sockfd, const char* hostip, unsigned shor
     
     if(listen(sockfd, 128) == -1)
     {
-        perror("listen");
-        fprintf(stderr, "Service LISTEN error, %s:%u", hostip ? hostip : "", port);
+        fprintf(stderr, "%s %u# listen(%s:%u): %s\n", __FILE__, __LINE__, hostip ? hostip : "", port, strerror(errno));
         return -1;;
     }
     
     return 0;
 }
 int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https, struct sockaddr_storage& clt_addr, socklen_t clt_size,
-    string& client_ip, string& backhost_ip, unsigned short& backhost_port, unsigned int& ip_lowbytes)
+    string& client_ip, unsigned int& ip_lowbytes)
 {
     struct sockaddr_in * v4_addr;
     struct sockaddr_in6 * v6_addr;
@@ -724,17 +738,6 @@ int Service::create_client_socket(const char* gate, int& clt_sockfd, BOOL https,
         close_fd(clt_sockfd);
         return -1;
     }
-    
-    map<string, vector<backend_host_t> >::iterator backend_host_group = m_backend_host_list.find(gate);
-    
-    if(backend_host_group == m_backend_host_list.end() || backend_host_group->second.size() == 0)
-    {
-        return -1;
-    }
-    
-    int backend_host_index = ip_lowbytes % backend_host_group->second.size();
-    backhost_ip = backend_host_group->second[backend_host_index].ip;
-    backhost_port = backend_host_group->second[backend_host_index].port;
     
     return 0;
 }
@@ -899,8 +902,8 @@ int Service::Run(int fd)
         epoll_fd = epoll_create1(0);
         if (epoll_fd == -1)  
         {  
-          uTrace.Write(Trace_Error, "epoll_create1 errno = %d, %s, %s %d", errno, strerror(errno), __FILE__, __LINE__);  
-          abort ();  
+            uTrace.Write(Trace_Error, "epoll_create1 errno = %d, %s, %s %d", errno, strerror(errno), __FILE__, __LINE__);  
+            break;  
         }
         if(m_service_list)
         {
@@ -972,7 +975,11 @@ int Service::Run(int fd)
 		write(fd, &result, sizeof(unsigned int));
 		close(fd);
         struct timespec ts;
-		stQueueMsg* pQMsg;
+		
+        int queue_buf_len = attr.mq_msgsize;
+        char* queue_buf_ptr = (char*)malloc(queue_buf_len);
+            
+        stQueueMsg* pQMsg = NULL;
 		int rc;
         m_next_process = 0;
         
@@ -983,10 +990,7 @@ int Service::Run(int fd)
                 printf("pid %u exits\n", w);
             
 			clock_gettime(CLOCK_REALTIME, &ts);
-            
-            int queue_buf_len = attr.mq_msgsize;
-            char* queue_buf_ptr = (char*)malloc(queue_buf_len);
-    
+
 			rc = mq_timedreceive(m_service_qid, queue_buf_ptr, queue_buf_len, 0, &ts);
 
 			if( rc != -1)
@@ -1043,8 +1047,6 @@ int Service::Run(int fd)
 				}
 				
 			}
-            
-            free(queue_buf_ptr);
                 
             int n, i;  
   
@@ -1068,22 +1070,66 @@ int Service::Run(int fd)
                     }
                     
                     string client_ip;
+                    
                     string backend_ip;
                     unsigned short backend_port;
                     
+                    string backup_backend_ip1;
+                    unsigned short backup_backend_port1;
+                    
+                    string backup_backend_ip2;
+                    unsigned short backup_backend_port2;
+                    
                     unsigned int ip_lowbytes;
-                    if(create_client_socket(sz_gate, clt_sockfd, false, clt_addr, clt_size, client_ip, backend_ip, backend_port, ip_lowbytes) < 0)
+                    if(create_client_socket(sz_gate, clt_sockfd, false, clt_addr, clt_size, client_ip, ip_lowbytes) < 0)
+                    {
+                        close(clt_sockfd);
                         continue;
+                    }
+                    
+                    map<string, vector<backend_host_t> >::iterator backend_host_group = m_backend_host_list.find(sz_gate);
+    
+                    if(backend_host_group == m_backend_host_list.end() || backend_host_group->second.size() == 0)
+                    {
+                        close(clt_sockfd);
+                        continue;
+                    }
+                    
+                    int backend_host_index = 0;
+                    int backup_backend_host_index1 = 0;
+                    int backup_backend_host_index2 = 0;
                     
                     if(bwgate_base::m_instance_balance_scheme[0] == 'R')
                     {
                         m_next_process++;
+                        backend_host_index = m_next_process % backend_host_group->second.size();
+                        backup_backend_host_index1 = (m_next_process + 1) % backend_host_group->second.size();
+                        backup_backend_host_index2 = (m_next_process + 1) % backend_host_group->second.size();
+                        
                         m_next_process = m_next_process % m_work_processes.size();
                     }
                     else
                     {
                         m_next_process = ip_lowbytes % m_work_processes.size();
+                        backend_host_index = ip_lowbytes % backend_host_group->second.size();
+                        backup_backend_host_index1 = (ip_lowbytes + 1) % backend_host_group->second.size();
+                        backup_backend_host_index2 = (ip_lowbytes + 2) % backend_host_group->second.size();
                     }
+                    
+                    
+                    backend_ip = backend_host_group->second[backend_host_index].ip;
+                    backend_port = backend_host_group->second[backend_host_index].port;
+                    
+                    backup_backend_ip1 = backend_host_group->second[backup_backend_host_index1].ip;
+                    backup_backend_port1 = backend_host_group->second[backup_backend_host_index1].port;
+                    
+                    backup_backend_ip2 = backend_host_group->second[backup_backend_host_index2].ip;
+                    backup_backend_port2 = backend_host_group->second[backup_backend_host_index2].port;
+                    
+                    /* printf("%s:%u %s:%u, %s:%u\n", backend_ip.c_str(), backend_port,
+                        backup_backend_ip1.c_str(), backup_backend_port1,
+                        backup_backend_ip2.c_str(), backup_backend_port2); */
+                        
                     char pid_file[1024];
                     sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid", m_service_name.c_str(), m_next_process);
                     if(check_pid_file(pid_file) == true) /* The related process had crashed */
@@ -1095,7 +1141,7 @@ int Service::Run(int fd)
         
                         if (socketpair(AF_UNIX, SOCK_DGRAM, 0, wpinfo.sockfds) < 0)
                         {
-                            fprintf(stderr, "socketpair error, %s %d\n", __FILE__, __LINE__);
+                            fprintf(stderr, "socketpair error, %s %d, %s\n", __FILE__, __LINE__, strerror(errno));
                             continue;
                         }
                         nFlag = fcntl(wpinfo.sockfds[0], F_GETFL, 0);
@@ -1155,8 +1201,15 @@ int Service::Run(int fd)
                     
                     strncpy(client_param.backend_ip, backend_ip.c_str(), 127);
                     client_param.backend_ip[127] = '\0';
-                    
                     client_param.backend_port = backend_port;
+                    
+                    strncpy(client_param.backup_backend_ip1, backup_backend_ip1.c_str(), 127);
+                    client_param.backup_backend_ip1[127] = '\0';
+                    client_param.backup_backend_port1 = backup_backend_port1;
+                    
+                    strncpy(client_param.backup_backend_ip2, backup_backend_ip2.c_str(), 127);
+                    client_param.backup_backend_ip2[127] = '\0';
+                    client_param.backup_backend_port2 = backup_backend_port2;              
 
                     client_param.ctrl = SessionParamData;
                     if(m_work_processes[m_next_process].sockfds[0] > 0)
@@ -1167,6 +1220,8 @@ int Service::Run(int fd)
                 }   
             }
 		}
+        
+        free(queue_buf_ptr);
 	}
     delete[] events;
     close_fd(epoll_fd);

@@ -44,7 +44,8 @@ static void daemon_init()
 	umask(0);
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
+    if(bwgate_base::m_close_stderr)
+        close(STDERR_FILENO);
 }
 
 char PIDFILE[256] = "/tmp/bwgated/bwgated.pid";

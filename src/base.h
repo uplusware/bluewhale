@@ -239,6 +239,8 @@ public:
 class bwgate_base
 {
 public:
+    static BOOL     m_close_stderr;
+
 	static string	m_sw_version;
 
 	static string	m_localhostname;
