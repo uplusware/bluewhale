@@ -210,7 +210,6 @@ public:
 	void Stop();
 	void ReloadConfig();
 	void ReloadAccess();
-	void ReloadExtension();
 	void AppendReject(const char* data);
     void ReloadBackend(CUplusTrace& uTrace);
 

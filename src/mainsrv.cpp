@@ -33,7 +33,7 @@ using namespace std;
 
 static void usage()
 {
-	printf("Usage:bwgated start | stop | status | reload | access | reject [ip] | extension | version\n");
+	printf("Usage:bwgated start | stop | status | reload | access | reject [ip] | version\n");
 }
 
 //set to daemon mode

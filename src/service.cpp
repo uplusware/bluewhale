@@ -575,34 +575,6 @@ void Service::AppendReject(const char* data)
 		sem_close(m_service_sid);
 }
 
-void Service::ReloadExtension()
-{
-	string strqueue = "/.bwgated_";
-	strqueue += m_service_name;
-	strqueue += "_queue";
-
-	string strsem = "/.bwgated_";
-	strsem += m_service_name;
-	strsem += "_lock";
-	
-	m_service_qid = mq_open(strqueue.c_str(), O_RDWR);
-	m_service_sid = sem_open(strsem.c_str(), O_RDWR);
-
-	if(m_service_qid == (mqd_t)-1 || m_service_sid == SEM_FAILED)
-		return;
-
-	stQueueMsg qMsg;
-	qMsg.cmd = MSG_EXTENSION_RELOAD;
-	sem_wait(m_service_sid);
-	mq_send(m_service_qid, (const char*)&qMsg, sizeof(stQueueMsg), 0);
-	sem_post(m_service_sid);
-	
-	if(m_service_qid != (mqd_t)-1)
-		mq_close(m_service_qid);
-	if(m_service_sid != SEM_FAILED)
-		sem_close(m_service_sid);
-}
-
 int Service::create_server_socket(int& sockfd, const char* hostip, unsigned short port)
 {
     int nFlag;
@@ -1125,10 +1097,6 @@ int Service::Run(int fd)
                     
                     backup_backend_ip2 = backend_host_group->second[backup_backend_host_index2].ip;
                     backup_backend_port2 = backend_host_group->second[backup_backend_host_index2].port;
-                    
-                    /* printf("%s:%u %s:%u, %s:%u\n", backend_ip.c_str(), backend_port,
-                        backup_backend_ip1.c_str(), backup_backend_port1,
-                        backup_backend_ip2.c_str(), backup_backend_port2); */
                         
                     char pid_file[1024];
                     sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid", m_service_name.c_str(), m_next_process);
