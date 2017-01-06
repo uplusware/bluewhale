@@ -746,9 +746,19 @@ void Service::ReloadBackend(CUplusTrace& uTrace)
                 backend_host.gate = pChildNode->ToElement()->Attribute("gate") ? pChildNode->ToElement()->Attribute("gate") : "";
                 strtrim(backend_host.gate);
                 
+                string str_weight;
+                str_weight = pChildNode->ToElement()->Attribute("weight") ? pChildNode->ToElement()->Attribute("weight") : "";
+                strtrim(str_weight);
+                if(str_weight != "")
+                    backend_host.weight = atoi(str_weight.c_str());
+                else
+                    backend_host.weight = 1;
+                
                 if(backend_host.ip != "" && backend_host.port > 0 && backend_host.gate != "")
                 {
-                    m_backend_host_list[backend_host.gate].push_back(backend_host);
+                    m_backend_host_list[backend_host.gate].next_one = 0;
+                    m_backend_host_list[backend_host.gate].curr_weight = 0;
+                    m_backend_host_list[backend_host.gate].backends.push_back(backend_host);
                     uTrace.Write(Trace_Msg, "Load backend: %s%s@[%s:%u]->%s", backend_host.protocol.c_str(),
                         backend_host.is_ssl ? "S" : "",
                         backend_host.ip.c_str(),
@@ -1059,44 +1069,59 @@ int Service::Run(int fd)
                         continue;
                     }
                     
-                    map<string, vector<backend_host_t> >::iterator backend_host_group = m_backend_host_list.find(sz_gate);
+                    map<string, backends_info_t>::iterator backend_host_group = m_backend_host_list.find(sz_gate);
     
-                    if(backend_host_group == m_backend_host_list.end() || backend_host_group->second.size() == 0)
+                    if(backend_host_group == m_backend_host_list.end() || backend_host_group->second.backends.size() == 0)
                     {
                         close(clt_sockfd);
                         continue;
                     }
                     
-                    int backend_host_index = 0;
-                    int backup_backend_host_index1 = 0;
-                    int backup_backend_host_index2 = 0;
+                    unsigned int backend_host_index = 0;
+                    unsigned int backup_backend_host_index1 = 0;
+                    unsigned int backup_backend_host_index2 = 0;
                     
                     if(bwgate_base::m_instance_balance_scheme[0] == 'R')
                     {
-                        m_next_process++;
-                        backend_host_index = m_next_process % backend_host_group->second.size();
-                        backup_backend_host_index1 = (m_next_process + 1) % backend_host_group->second.size();
-                        backup_backend_host_index2 = (m_next_process + 1) % backend_host_group->second.size();
+                        if(backend_host_group->second.curr_weight == 0)
+                        {
+                            backend_host_group->second.curr_weight = backend_host_group->second.backends[backend_host_index].weight;
+                        }
                         
-                        m_next_process = m_next_process % m_work_processes.size();
+                        backend_host_index = backend_host_group->second.next_one % backend_host_group->second.backends.size();
+                        
+                        backup_backend_host_index1 = (backend_host_index + 1) % backend_host_group->second.backends.size();
+                        backup_backend_host_index2 = (backend_host_index + 2) % backend_host_group->second.backends.size();
+                        
+                        backend_host_group->second.curr_weight--;
+                        
+                        if(backend_host_group->second.curr_weight == 0)
+                        {
+                            backend_host_group->second.next_one++;
+                        }
+                        
+                        m_next_process++;
+                        
                     }
                     else
                     {
-                        m_next_process = ip_lowbytes % m_work_processes.size();
-                        backend_host_index = ip_lowbytes % backend_host_group->second.size();
-                        backup_backend_host_index1 = (ip_lowbytes + 1) % backend_host_group->second.size();
-                        backup_backend_host_index2 = (ip_lowbytes + 2) % backend_host_group->second.size();
+                        backend_host_index = ip_lowbytes % backend_host_group->second.backends.size();
+                        backup_backend_host_index1 = (ip_lowbytes + 1) % backend_host_group->second.backends.size();
+                        backup_backend_host_index2 = (ip_lowbytes + 2) % backend_host_group->second.backends.size();
+                        
+                        m_next_process = ip_lowbytes;
                     }
                     
+                    m_next_process = m_next_process % m_work_processes.size();
                     
-                    backend_ip = backend_host_group->second[backend_host_index].ip;
-                    backend_port = backend_host_group->second[backend_host_index].port;
+                    backend_ip = backend_host_group->second.backends[backend_host_index].ip;
+                    backend_port = backend_host_group->second.backends[backend_host_index].port;
                     
-                    backup_backend_ip1 = backend_host_group->second[backup_backend_host_index1].ip;
-                    backup_backend_port1 = backend_host_group->second[backup_backend_host_index1].port;
+                    backup_backend_ip1 = backend_host_group->second.backends[backup_backend_host_index1].ip;
+                    backup_backend_port1 = backend_host_group->second.backends[backup_backend_host_index1].port;
                     
-                    backup_backend_ip2 = backend_host_group->second[backup_backend_host_index2].ip;
-                    backup_backend_port2 = backend_host_group->second[backup_backend_host_index2].port;
+                    backup_backend_ip2 = backend_host_group->second.backends[backup_backend_host_index2].ip;
+                    backup_backend_port2 = backend_host_group->second.backends[backup_backend_host_index2].port;
                         
                     char pid_file[1024];
                     sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid", m_service_name.c_str(), m_next_process);

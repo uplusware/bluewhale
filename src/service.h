@@ -153,7 +153,7 @@ static bool check_pid_file(const char* pflag)
 
 typedef std::pair<std::string, unsigned short> service_key_t;
 
-typedef struct{
+typedef struct {
     //from xml configuration
     string ip;
     unsigned short port;
@@ -163,20 +163,26 @@ typedef struct{
     int sockfd;
 } service_content_t;
 
-typedef struct{
+typedef struct {
     string ip;
     BOOL is_ssl;    
     int sockfd;
 } session_content_t;
 
-typedef struct
-{
+typedef struct {
 	string ip;
 	unsigned short port;
     BOOL is_ssl;
     string protocol;
     string gate;
+    unsigned char weight;
 }backend_host_t;
+
+typedef struct {
+	vector<backend_host_t> backends;
+    unsigned char curr_weight;
+    unsigned int next_one;
+}backends_info_t;
 
 typedef struct {
 	int pid;
@@ -231,7 +237,7 @@ protected:
     
     service_content_t** m_service_list;
     
-    map<string, vector<backend_host_t> > m_backend_host_list;
+    map<string, backends_info_t> m_backend_host_list;
 };
 
 #endif /* _SERVICE_H_ */
