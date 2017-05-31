@@ -15,17 +15,15 @@
 #include <stdio.h>
 #include <sys/wait.h>
 #include <sys/select.h>
+#include <mqueue.h>
+#include <semaphore.h>
 
 #include "util/general.h"
 #include "base.h"
 #include "session.h"
-#include <mqueue.h>
-#include <semaphore.h>
+#include "posixname.h"
 
 #define DEFAULT_WORK_PROCESS_NUM 1
-
-static char LOGNAME[256] = "/var/log/bwgated/service.log";
-static char LCKNAME[256] = "/.bwgated_sys.lock";
 
 static const char* SVR_NAME_TBL[] = {NULL, "bwgated", NULL};
 static const char* SVR_DESP_TBL[] = {NULL, "bwgated", NULL};

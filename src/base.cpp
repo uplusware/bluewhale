@@ -5,6 +5,7 @@
 #include <dlfcn.h>
 #include "base.h"
 #include "util/security.h"
+#include "posixname.h"
 
 //////////////////////////////////////////////////////////////////////////
 //bwgate_base
@@ -71,47 +72,47 @@ BOOL bwgate_base::LoadConfig()
 		if(strline == "")
 			continue;
 			
-		if(strncasecmp(strline.c_str(), "#", strlen("#")) != 0)
+		if(strncasecmp(strline.c_str(), "#", sizeof("#") - 1) != 0)
 		{	
-			if(strncasecmp(strline.c_str(), "CloseStderr", strlen("CloseStderr")) == 0)
+			if(strncasecmp(strline.c_str(), "CloseStderr", sizeof("CloseStderr") - 1) == 0)
 			{
 				string close_stderr;
 				strcut(strline.c_str(), "=", NULL, close_stderr );
 				strtrim(close_stderr);
 				m_close_stderr = (strcasecmp(close_stderr.c_str(), "yes")) == 0 ? TRUE : FALSE;
 			}
-            else if(strncasecmp(strline.c_str(), "LocalHostName", strlen("LocalHostName")) == 0)
+            else if(strncasecmp(strline.c_str(), "LocalHostName", sizeof("LocalHostName") - 1) == 0)
 			{
 				strcut(strline.c_str(), "=", NULL, m_localhostname );
 				strtrim(m_localhostname);
 			}
-			else if(strncasecmp(strline.c_str(), "HostIP", strlen("HostIP")) == 0)
+			else if(strncasecmp(strline.c_str(), "HostIP", sizeof("HostIP") - 1) == 0)
 			{
 				strcut(strline.c_str(), "=", NULL, m_hostip );
 				strtrim(m_hostip);
 			}
-            else if(strncasecmp(strline.c_str(), "InstanceMaxCocurrentConNum", strlen("InstanceMaxCocurrentConNum")) == 0)
+            else if(strncasecmp(strline.c_str(), "InstanceMaxCocurrentConNum", sizeof("InstanceMaxCocurrentConNum") - 1) == 0)
 			{
                 string concurrent_conn;
 				strcut(strline.c_str(), "=", NULL, concurrent_conn );
 				strtrim(concurrent_conn);
                 m_instance_max_concurrent_conn = atoi(concurrent_conn.c_str());
 			}
-            else if(strncasecmp(strline.c_str(), "MaxInstanceNum", strlen("MaxInstanceNum")) == 0)
+            else if(strncasecmp(strline.c_str(), "MaxInstanceNum", sizeof("MaxInstanceNum") - 1) == 0)
 			{
                 string max_instance_num;
 				strcut(strline.c_str(), "=", NULL, max_instance_num );
 				strtrim(max_instance_num);
                 m_max_instance_num = atoi(max_instance_num.c_str());
 			}
-            else if(strncasecmp(strline.c_str(), "InstancePrestart", strlen("InstancePrestart")) == 0)
+            else if(strncasecmp(strline.c_str(), "InstancePrestart", sizeof("InstancePrestart") - 1) == 0)
 			{
 				string instance_prestart;
 				strcut(strline.c_str(), "=", NULL, instance_prestart );
 				strtrim(instance_prestart);
 				m_instance_prestart = (strcasecmp(instance_prestart.c_str(), "yes")) == 0 ? TRUE : FALSE;
 			}
-            else if(strncasecmp(strline.c_str(), "InstanceBalanceScheme", strlen("InstanceBalanceScheme")) == 0)
+            else if(strncasecmp(strline.c_str(), "InstanceBalanceScheme", sizeof("InstanceBalanceScheme") - 1) == 0)
 			{
 				strcut(strline.c_str(), "=", NULL, m_instance_balance_scheme );
 				strtrim(m_instance_balance_scheme);
@@ -134,7 +135,7 @@ BOOL bwgate_base::LoadAccessList()
 	sem_t* plock = NULL;
 	///////////////////////////////////////////////////////////////////////////////
 	// GLOBAL_REJECT_LIST
-	plock = sem_open("/.BWGATED_GLOBAL_REJECT_LIST.sem", O_CREAT | O_RDWR, 0644, 1);
+	plock = sem_open(BWGATED_GLOBAL_REJECT_LIST, O_CREAT | O_RDWR, 0644, 1);
 	if(plock != SEM_FAILED)
 	{
 		sem_wait(plock);
@@ -146,7 +147,7 @@ BOOL bwgate_base::LoadAccessList()
 	}
 	/////////////////////////////////////////////////////////////////////////////////
 	// GLOBAL_PERMIT_LIST
-	plock = sem_open("/.BWGATED_GLOBAL_PERMIT_LIST.sem", O_CREAT | O_RDWR, 0644, 1);
+	plock = sem_open(BWGATED_GLOBAL_PERMIT_LIST, O_CREAT | O_RDWR, 0644, 1);
 	if(plock != SEM_FAILED)
 	{
 		sem_wait(plock);
@@ -190,7 +191,7 @@ void bwgate_base::_load_reject_()
 	while(getline(rejectfilein, strline))
 	{
 		strtrim(strline);
-		if((strline != "")&&(strncmp(strline.c_str(), "#", 1) != 0))
+		if((strline != "") && (strncmp(strline.c_str(), "#", 1) != 0))
 		{
 			stReject sr;
 			sr.ip = strline;

@@ -458,13 +458,13 @@ Service::~Service()
 
 void Service::Stop()
 {
-	string strqueue = "/.bwgated_";
+	string strqueue = BWGATED_POSIX_PREFIX;
 	strqueue += m_service_name;
-	strqueue += "_queue";
+	strqueue += BWGATED_POSIX_QUEUE_SUFFIX;
 
-	string strsem = "/.bwgated_";
+	string strsem = BWGATED_POSIX_PREFIX;
 	strsem += m_service_name;
-	strsem += "_lock";
+	strsem += BWGATED_POSIX_SEMAPHORE_SUFFIX;
 	
 	m_service_qid = mq_open(strqueue.c_str(), O_RDWR);
 	m_service_sid = sem_open(strsem.c_str(), O_RDWR);
@@ -488,13 +488,13 @@ void Service::Stop()
 
 void Service::ReloadConfig()
 {
-	string strqueue = "/.bwgated_";
+	string strqueue = BWGATED_POSIX_PREFIX;
 	strqueue += m_service_name;
-	strqueue += "_queue";
+	strqueue += BWGATED_POSIX_QUEUE_SUFFIX;
 
-	string strsem = "/.bwgated_";
+	string strsem = BWGATED_POSIX_PREFIX;
 	strsem += m_service_name;
-	strsem += "_lock";
+	strsem += BWGATED_POSIX_SEMAPHORE_SUFFIX;
 	
 	m_service_qid = mq_open(strqueue.c_str(), O_RDWR);
 	m_service_sid = sem_open(strsem.c_str(), O_RDWR);
@@ -518,13 +518,13 @@ void Service::ReloadConfig()
 
 void Service::ReloadAccess()
 {
-	string strqueue = "/.bwgated_";
+	string strqueue = BWGATED_POSIX_PREFIX;
 	strqueue += m_service_name;
-	strqueue += "_queue";
+	strqueue += BWGATED_POSIX_QUEUE_SUFFIX;
 
-	string strsem = "/.bwgated_";
+	string strsem = BWGATED_POSIX_PREFIX;
 	strsem += m_service_name;
-	strsem += "_lock";
+	strsem += BWGATED_POSIX_SEMAPHORE_SUFFIX;
 	
 	m_service_qid = mq_open(strqueue.c_str(), O_RDWR);
 	m_service_sid = sem_open(strsem.c_str(), O_RDWR);
@@ -546,13 +546,13 @@ void Service::ReloadAccess()
 
 void Service::AppendReject(const char* data)
 {
-	string strqueue = "/.bwgated_";
+	string strqueue = BWGATED_POSIX_PREFIX;
 	strqueue += m_service_name;
-	strqueue += "_queue";
+	strqueue += BWGATED_POSIX_QUEUE_SUFFIX;
 
-	string strsem = "/.bwgated_";
+	string strsem = BWGATED_POSIX_PREFIX;
 	strsem += m_service_name;
-	strsem += "_lock";
+	strsem += BWGATED_POSIX_SEMAPHORE_SUFFIX;
 	
 	m_service_qid = mq_open(strqueue.c_str(), O_RDWR);
 	m_service_sid = sem_open(strsem.c_str(), O_RDWR);
@@ -773,16 +773,16 @@ void Service::ReloadBackend(CUplusTrace& uTrace)
 
 int Service::Run(int fd)
 {	
-    CUplusTrace uTrace(LOGNAME, LCKNAME);
+    CUplusTrace uTrace(BWGATED_SERVICE_LOGNAME, BWGATED_SERVICE_LCKNAME);
     
 	unsigned int result = 0;
-	string strqueue = "/.bwgated_";
+	string strqueue = BWGATED_POSIX_PREFIX;
 	strqueue += m_service_name;
-	strqueue += "_queue";
+	strqueue += BWGATED_POSIX_QUEUE_SUFFIX;
 
-	string strsem = "/.bwgated_";
+	string strsem = BWGATED_POSIX_PREFIX;
 	strsem += m_service_name;
-	strsem += "_lock";
+	strsem += BWGATED_POSIX_SEMAPHORE_SUFFIX;
 	
 	mq_attr attr;
 	attr.mq_maxmsg = 8;
