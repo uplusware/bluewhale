@@ -30,6 +30,9 @@
 
 #define MAX_STORAGE_CONN	32
 
+
+#define MAX_SOCKET_TIMEOUT 20
+
 using namespace std;
 
 typedef unsigned int BOOL;
@@ -211,9 +214,6 @@ void __inline__ fnln_strcut(const char* text, const char* begstring, const char*
 		strDest = strText.substr(subfirst, sublen);
 }
 
-#define WAIT_TIME_INTERVAL 1
-#define MAX_TRY_TIMEOUT 20
-
 int __inline__ _Recv_(int sockfd, char* buf, unsigned int buf_len)
 {
 	int taketime = 0;
@@ -226,7 +226,7 @@ int __inline__ _Recv_(int sockfd, char* buf, unsigned int buf_len)
 	FD_ZERO(&mask);
 	while(1)
 	{
-		timeout.tv_sec = WAIT_TIME_INTERVAL; 
+		timeout.tv_sec = MAX_SOCKET_TIMEOUT; 
 		timeout.tv_usec = 0;
 
 		FD_SET(sockfd, &mask);
@@ -238,34 +238,23 @@ int __inline__ _Recv_(int sockfd, char* buf, unsigned int buf_len)
 			len = recv(sockfd, buf + nRecv, buf_len - nRecv, 0);
 			if(len == 0)
             {
-                shutdown(sockfd, SHUT_RDWR);
+                close(sockfd);
                 return nRecv; 
             }
 			else if(len < 0)
 			{
                 if( errno == EAGAIN)
                     continue;
-				shutdown(sockfd, SHUT_RDWR);
+				close(sockfd);
 				return nRecv;
 			}
 			nRecv = nRecv + len;
 			if(nRecv == buf_len)
 				return nRecv;
 		}
-		else if(res == 0)
+		else  /* timeout or error */
 		{
-			//printf("taketime: %d/%d %d\n", taketime, MAX_TRY_TIMEOUT, nRecv);
-			taketime = taketime + WAIT_TIME_INTERVAL;
-			if(taketime > MAX_TRY_TIMEOUT)
-			{
-				shutdown(sockfd, SHUT_RDWR);
-				return -1;
-			}
-			continue;
-		}
-		else
-		{
-			shutdown(sockfd, SHUT_RDWR);
+			close(sockfd);
 			return -1;
 		}
 		
@@ -286,7 +275,7 @@ int __inline__ _Send_(int sockfd, const char * buf, unsigned int buf_len)
 	FD_ZERO(&mask);	
 	while(1)
 	{
-		timeout.tv_sec = WAIT_TIME_INTERVAL; 
+		timeout.tv_sec = MAX_SOCKET_TIMEOUT; 
 		timeout.tv_usec = 0;
 
 		FD_SET(sockfd, &mask);
@@ -298,33 +287,23 @@ int __inline__ _Send_(int sockfd, const char * buf, unsigned int buf_len)
 			int len = send(sockfd, buf + nSend, buf_len - nSend, 0);
             if(len == 0)
 			{
-				shutdown(sockfd, SHUT_RDWR);
+				close(sockfd);
 				return -1;
 			}
 			else if(len <= 0)
 			{
                 if( errno == EAGAIN)
                     continue;
-				shutdown(sockfd, SHUT_RDWR);
+				close(sockfd);
 				return -1;
 			}
 			nSend = nSend + len;
 			if(nSend == buf_len)
 				return 0;
 		}
-		else if(res == 0)
+		else  /* timeout or error */
 		{
-			taketime = taketime + WAIT_TIME_INTERVAL;
-			if(taketime > MAX_TRY_TIMEOUT)
-			{
-				shutdown(sockfd, SHUT_RDWR);
-				return -1;
-			}
-			continue;
-		}
-		else
-		{
-			shutdown(sockfd, SHUT_RDWR);
+			close(sockfd);
 			return -1;
 		}
 	}

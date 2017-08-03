@@ -165,7 +165,7 @@ public:
 			if(nRecv >= blen)
 				return -2;
 			
-			timeout.tv_sec = 1; 
+			timeout.tv_sec = MAX_SOCKET_TIMEOUT; 
 			timeout.tv_usec = 0;
 					
 			FD_SET(sockfd, &mask);
@@ -207,18 +207,9 @@ public:
 					break;
 				}
 			}
-			else if(res == 0)
+			else /* timeout or error */
 			{
-				taketime = taketime + 1;
-                if(taketime > MAX_TRY_TIMEOUT)
-				{
-					close(sockfd);
-					return -1;
-				}
-				continue;
-			}
-			else
-			{
+                close(sockfd);
                 return -1;
 			}
 			
