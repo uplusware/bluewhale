@@ -217,9 +217,9 @@ void Worker::Working()
         return;  
     }
         
-    struct epoll_event event;  
     struct epoll_event * events = new struct epoll_event[bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn]; 
     
+    struct epoll_event event;  
     event.data.fd = m_sockfd;  
     event.events = EPOLLIN | EPOLLHUP | EPOLLERR;
     int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, m_sockfd, &event); 
