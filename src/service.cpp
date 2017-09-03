@@ -361,6 +361,9 @@ void Worker::Working()
                     if(m_client_list[events[i].data.fd] != NULL)
                     {
                         Session* pSession = m_client_list[events[i].data.fd];
+                        if(pSession)
+                            pSession->enable_backendsockfd();
+                        
                         if(pSession && pSession->send_to_client() < 0)
                         {
                             struct epoll_event ev;

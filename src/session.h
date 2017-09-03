@@ -35,6 +35,7 @@ class Session
 protected:
 	int m_client_sockfd;
     int m_backend_sockfd;
+    BOOL m_backend_sockfd_established;
 	string m_clientip;
     
     list<buf_desc*> m_client_bufs;
@@ -46,11 +47,10 @@ protected:
     
 public:
 	Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port);
-	
     
     int get_backendsockfd() { return m_backend_sockfd; }
     int get_clientsockfd() { return m_client_sockfd; }
-    
+    void  enable_backendsockfd() { m_backend_sockfd_established = TRUE; }
     int recv_from_client();
     int recv_from_backend();
     

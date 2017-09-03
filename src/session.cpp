@@ -23,7 +23,7 @@ Session::Session(int sockfd, const char* clientip, const char* backhost_ip, unsi
 	m_clientip = clientip;
     
     m_backend_sockfd = -1;
-    
+    m_backend_sockfd_established = FALSE;
     struct addrinfo hints;      
     struct addrinfo *servinfo, *curr;  
     struct sockaddr_in *sa;
@@ -285,6 +285,11 @@ int Session::send_to_client()
 
 int Session::send_to_backend()
 {
+    if(!m_backend_sockfd_established)
+    {
+        return 0;
+    }
+    
     if(m_client_bufs.size() > 0)
     {
         buf_desc * bd = m_client_bufs.front();
