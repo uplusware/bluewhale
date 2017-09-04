@@ -14,8 +14,9 @@ void close_sockfd(int& sockfd)
     }
 }
 
-Session::Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port)
+Session::Session(int epoll_fd, int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port)
 {
+	m_epoll_fd = epoll_fd;
     m_client_bufs.clear();
      
     m_use_count = 0;
@@ -258,6 +259,20 @@ int Session::send_to_client()
                     m_backend_bufs.pop_front();
                 }
                 
+                if(m_backend_bufs.size() > 0)
+                {
+                    struct epoll_event ev;
+                    ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;
+                    ev.data.fd = m_client_sockfd;
+                    epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, m_client_sockfd, &ev);
+                }
+                else // .size() == 0 
+                {
+                    struct epoll_event ev;
+                    ev.events = EPOLLIN | EPOLLHUP | EPOLLERR;
+                    ev.data.fd = m_client_sockfd;
+                    epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, m_client_sockfd, &ev);
+                }
                 return s;
             }
             else
@@ -273,6 +288,11 @@ int Session::send_to_client()
     }
     else
     {
+        struct epoll_event ev;
+        ev.events = EPOLLIN | EPOLLHUP | EPOLLERR;
+        ev.data.fd = m_client_sockfd;
+        epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, m_client_sockfd, &ev);
+        
         if(m_backend_sockfd == -1)
         {
             close_sockfd(m_client_sockfd);
@@ -303,6 +323,22 @@ int Session::send_to_backend()
                     delete bd;
                     m_client_bufs.pop_front();
                 }
+                
+                if(m_client_bufs.size() > 0)
+                {
+                    struct epoll_event ev;
+                    ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;
+                    ev.data.fd = m_backend_sockfd;
+                    epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, m_backend_sockfd, &ev);
+                }
+                else // .size() == 0
+                {
+                    struct epoll_event ev;
+                    ev.events = EPOLLIN | EPOLLHUP | EPOLLERR;
+                    ev.data.fd = m_backend_sockfd;
+                    epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, m_backend_sockfd, &ev);
+                }
+                    
                 return s;
             }
             else
@@ -318,6 +354,11 @@ int Session::send_to_backend()
     }
     else
     {
+        struct epoll_event ev;
+        ev.events = EPOLLIN | EPOLLHUP | EPOLLERR;
+        ev.data.fd = m_backend_sockfd;
+        epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, m_backend_sockfd, &ev);
+            
         if(m_client_sockfd == -1)
         {
             close_sockfd(m_backend_sockfd);

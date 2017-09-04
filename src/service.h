@@ -194,7 +194,12 @@ public:
 	virtual ~Worker();
 
 	void Working();
-private:	
+	
+	void AppendBackend(Session* pSession);
+	void AppendClient(Session* pSession);
+	
+private:
+	int m_epoll_fd;
 	int m_sockfd;
 	int m_thread_num;
 	int m_process_seq;

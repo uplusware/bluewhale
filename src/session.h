@@ -11,10 +11,18 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/select.h>
+#include <arpa/inet.h>
 #include "base.h"
 #include <sys/wait.h>
 #include <netdb.h>
+#include <sys/epoll.h>  
 #include "util/trace.h"
+enum gate_type
+{
+    gate_balancer = 0,
+    gate_http_proxy,
+    gate_sock5_proxy
+};
 
 typedef enum
 {
@@ -33,6 +41,7 @@ typedef struct{
 class Session
 {
 protected:
+	int m_epoll_fd;
 	int m_client_sockfd;
     int m_backend_sockfd;
     BOOL m_backend_sockfd_established;
@@ -46,17 +55,21 @@ protected:
     virtual ~Session();
     
 public:
-	Session(int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port);
+	Session(int epoll_fd, int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port);
+    int get_backend_sockfd() { return m_backend_sockfd; }
+    int get_client_sockfd() { return m_client_sockfd; }
     
-    int get_backendsockfd() { return m_backend_sockfd; }
-    int get_clientsockfd() { return m_client_sockfd; }
-    void  enable_backendsockfd() { m_backend_sockfd_established = TRUE; }
+    void set_backend_sockfd_established() { m_backend_sockfd_established = TRUE; }
+    
     int recv_from_client();
     int recv_from_backend();
     
     int send_to_client();
     int send_to_backend();
     
+	void append_client_buf(const char* buf, int len);
+	void append_backend_buf(const char* buf, int len);
+	
     void accquire()
     {
         m_use_count++;

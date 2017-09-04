@@ -39,6 +39,7 @@ void close_fd(int fd)
 
 typedef struct {
 	CLIENT_PARAM_CTRL ctrl;
+    gate_type g_type;
 	char client_ip[128];
     char backend_ip[128];
     unsigned short backend_port;
@@ -205,13 +206,52 @@ Worker::~Worker()
     m_backend_list = NULL;
 }
 
+void Worker::AppendBackend(Session* pSession)
+{
+	struct epoll_event event; 
+	pSession->accquire(); //acquire by backend connection list
+	if(m_backend_list[pSession->get_backend_sockfd()] != NULL)
+	{
+		m_backend_list[pSession->get_backend_sockfd()]->release();
+	}
+	m_backend_list[pSession->get_backend_sockfd()] = pSession;
+
+	event.data.fd = pSession->get_backend_sockfd();  
+	event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR; 
+
+	int s = epoll_ctl (m_epoll_fd, EPOLL_CTL_ADD, pSession->get_backend_sockfd(), &event);  
+	if (s == -1)  
+	{  
+		fprintf(stderr, "%s %u# epoll_ctl: %s\n", __FILE__, __LINE__, strerror(errno));
+    }
+}
+
+void Worker::AppendClient(Session* pSession)
+{
+	struct epoll_event event; 
+	pSession->accquire(); //acquire by backend connection list
+	if(m_client_list[pSession->get_client_sockfd()] != NULL)
+	{
+		m_client_list[pSession->get_client_sockfd()]->release();
+	}
+	m_client_list[pSession->get_client_sockfd()] = pSession;
+
+	event.data.fd = pSession->get_client_sockfd();  
+	event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR; 
+
+	int s = epoll_ctl (m_epoll_fd, EPOLL_CTL_ADD, pSession->get_client_sockfd(), &event);  
+	if (s == -1)  
+	{  
+		fprintf(stderr, "%s %u# epoll_ctl: %s\n", __FILE__, __LINE__, strerror(errno));
+    }
+}
+
 void Worker::Working()
 {
 	bool bQuit = false;
     
-    int epoll_fd;
-    epoll_fd = epoll_create1(0);
-    if (epoll_fd == -1)  
+    m_epoll_fd = epoll_create1(0);
+    if (m_epoll_fd == -1)  
     {
         fprintf(stderr, "%s %u# epoll_create1: %s\n", __FILE__, __LINE__, strerror(errno));
         return;  
@@ -222,7 +262,7 @@ void Worker::Working()
     struct epoll_event event;  
     event.data.fd = m_sockfd;  
     event.events = EPOLLIN | EPOLLHUP | EPOLLERR;
-    int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, m_sockfd, &event); 
+    int s = epoll_ctl (m_epoll_fd, EPOLL_CTL_ADD, m_sockfd, &event); 
     if (s == -1)  
     {  
         fprintf(stderr, "%s %u# epoll_ctl: %s\n", __FILE__, __LINE__, strerror(errno));
@@ -232,7 +272,7 @@ void Worker::Working()
 	{
         int n, i;  
   
-        n = epoll_wait (epoll_fd, events, bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn, 1000);
+        n = epoll_wait (m_epoll_fd, events, bwgate_base::m_instance_max_concurrent_conn > MAX_EVENTS_NUM ? MAX_EVENTS_NUM : bwgate_base::m_instance_max_concurrent_conn, 1000);
 
         for (i = 0; i < n; i++)  
         {
@@ -253,19 +293,13 @@ void Worker::Working()
                 }
                 else
                 {
-                    event.data.fd = clt_sockfd;  
-                    event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;  
-                    if (epoll_ctl (epoll_fd, EPOLL_CTL_ADD, clt_sockfd, &event) == -1)  
-                    {  
-                        fprintf(stderr, "%s %u# epoll_ctl: %s\n", __FILE__, __LINE__, strerror(errno));
-                        bQuit = true;
-                        break;
-                    }
+                    int flags = fcntl(clt_sockfd, F_GETFL, 0); 
+                    fcntl(clt_sockfd, F_SETFL, flags | O_NONBLOCK);
                     
                     Session * pSession = NULL;
                         
                     try { /* try connect 1st backend */
-                        pSession = new Session(clt_sockfd, client_param.client_ip, client_param.backend_ip, client_param.backend_port);
+                        pSession = new Session(m_epoll_fd, clt_sockfd, client_param.client_ip, client_param.backend_ip, client_param.backend_port);
                     }
                     catch(string* e)
                     {
@@ -273,7 +307,7 @@ void Worker::Working()
                         delete e;
                         
                         try {/* try connect 2nd backend */
-                            pSession = new Session(clt_sockfd, client_param.client_ip, client_param.backup_backend_ip1, client_param.backup_backend_port1);
+                            pSession = new Session(m_epoll_fd, clt_sockfd, client_param.client_ip, client_param.backup_backend_ip1, client_param.backup_backend_port1);
                         }
                         catch(string* e)
                         {
@@ -281,7 +315,7 @@ void Worker::Working()
                             delete e;
                             
                             try { /* try connect 3nd backend */
-                                pSession = new Session(clt_sockfd, client_param.client_ip, client_param.backup_backend_ip2, client_param.backup_backend_port2);
+                                pSession = new Session(m_epoll_fd, clt_sockfd, client_param.client_ip, client_param.backup_backend_ip2, client_param.backup_backend_port2);
                             }
                             catch(string* e)
                             {
@@ -293,31 +327,8 @@ void Worker::Working()
                     
                     if(pSession)
                     {
-                        pSession->accquire();
-                        
-                        if(m_client_list[pSession->get_clientsockfd()] != NULL)
-                        {
-                            m_client_list[pSession->get_clientsockfd()]->release();
-                        }
-                        m_client_list[pSession->get_clientsockfd()] = pSession;
-                        
-                        pSession->accquire();
-                        
-                        if(m_backend_list[pSession->get_backendsockfd()] != NULL)
-                        {
-                            m_backend_list[pSession->get_backendsockfd()]->release();
-                        }
-                        m_backend_list[pSession->get_backendsockfd()] = pSession;
-                        
-                        event.data.fd = pSession->get_backendsockfd();  
-                        event.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR; 
-                    
-                        int s = epoll_ctl (epoll_fd, EPOLL_CTL_ADD, pSession->get_backendsockfd(), &event);  
-                        if (s == -1)  
-                        {  
-                            fprintf(stderr, "%s %u# epoll_ctl: %s\n", __FILE__, __LINE__, strerror(errno));
-                            bQuit = true;
-                        }
+                        AppendClient(pSession);
+						AppendBackend(pSession);
                     }
                 }
             }
@@ -333,7 +344,7 @@ void Worker::Working()
                                 struct epoll_event ev;
                                 ev.events = EPOLLIN;
                                 ev.data.fd = events[i].data.fd;
-                                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                                epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
                                 
                                 m_client_list[events[i].data.fd] = NULL;
                                 
@@ -349,7 +360,7 @@ void Worker::Working()
                             struct epoll_event ev;
                             ev.events = EPOLLIN;
                             ev.data.fd = events[i].data.fd;
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
 
                             m_backend_list[events[i].data.fd] = NULL;
                             pSession->release(events[i].data.fd); //delete itself
@@ -361,15 +372,13 @@ void Worker::Working()
                     if(m_client_list[events[i].data.fd] != NULL)
                     {
                         Session* pSession = m_client_list[events[i].data.fd];
-                        if(pSession)
-                            pSession->enable_backendsockfd();
                         
                         if(pSession && pSession->send_to_client() < 0)
                         {
                             struct epoll_event ev;
-                            ev.events = EPOLLOUT;
+                            ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;
                             ev.data.fd = events[i].data.fd;
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
                             
                             m_client_list[events[i].data.fd] = NULL;
                                 
@@ -379,12 +388,16 @@ void Worker::Working()
                     else if(m_backend_list[events[i].data.fd] != NULL)
                     {
                         Session* pSession = m_backend_list[events[i].data.fd];
+						
+						if(pSession)
+                            pSession->set_backend_sockfd_established();
+						
                         if(pSession && pSession->send_to_backend() < 0)
                         {
                             struct epoll_event ev;
-                            ev.events = EPOLLOUT;
+                            ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;
                             ev.data.fd = events[i].data.fd;
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
                             
                             m_backend_list[events[i].data.fd] = NULL;
                             pSession->release(events[i].data.fd); //delete itself
@@ -401,7 +414,7 @@ void Worker::Working()
                             struct epoll_event ev;
                             ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
                             ev.data.fd = events[i].data.fd;
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
 
                             m_client_list[events[i].data.fd] = NULL;
                                 
@@ -416,7 +429,7 @@ void Worker::Working()
                             struct epoll_event ev;
                             ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
                             ev.data.fd = events[i].data.fd;
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
                             
                             m_backend_list[events[i].data.fd] = NULL;
                             
@@ -971,8 +984,6 @@ int Service::Run(int fd)
 		while(1)
 		{	
 			pid_t w = waitpid(-1, NULL, WNOHANG);
-            if(w > 0)
-                printf("pid %u exits\n", w);
             
 			clock_gettime(CLOCK_REALTIME, &ts);
 
@@ -1192,6 +1203,7 @@ int Service::Run(int fd)
                     }
         
                     CLIENT_PARAM client_param;
+                    client_param.g_type = gate_balancer;
                     strncpy(client_param.client_ip, client_ip.c_str(), 127);
                     client_param.client_ip[127] = '\0';
                     
