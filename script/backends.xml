@@ -1,5 +1,5 @@
 <? xml version="1.0" encoding="UTF-8" ?>
 <bluewhale>
-    <backend ip="127.0.0.1" port="5080" ssl="false" protocol="HTTP" gate=":6080" weight="8" />
-    <backend ip="127.0.0.1" port="5081" ssl="true" protocol="HTTP" gate=":6081" weight="8" />
+    <backend ip="127.0.0.1" port="5080" ssl="false" protocol="HTTP"       gate=":6080" weight="8" />
+    <backend ip="127.0.0.1" port="5081" ssl="true"  protocol="HTTP"       gate=":6081" weight="8" />
 </bluewhale>

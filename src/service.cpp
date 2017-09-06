@@ -41,14 +41,8 @@ typedef struct {
 	CLIENT_PARAM_CTRL ctrl;
     gate_type g_type;
 	char client_ip[128];
-    char backend_ip[128];
-    unsigned short backend_port;
-    
-    char backup_backend_ip1[128];
-    unsigned short backup_backend_port1;
-    
-    char backup_backend_ip2[128];
-    unsigned short backup_backend_port2;
+    char backend_ip[3][128];
+    unsigned short backend_port[3];
 } CLIENT_PARAM;
 
 static int send_sockfd(int sfd, int fd_file, CLIENT_PARAM* param) 
@@ -288,7 +282,7 @@ void Worker::Working()
 
                 if(client_param.ctrl == SessionParamQuit)
                 {
-                    printf("QUIT from Worker %u\n", m_process_seq);
+                    printf("Quit from Worker %u\n", m_process_seq);
                     bQuit = true;
                 }
                 else
@@ -296,39 +290,23 @@ void Worker::Working()
                     int flags = fcntl(clt_sockfd, F_GETFL, 0); 
                     fcntl(clt_sockfd, F_SETFL, flags | O_NONBLOCK);
                     
-                    Session * pSession = NULL;
-                        
-                    try { /* try connect 1st backend */
-                        pSession = new Session(m_epoll_fd, clt_sockfd, client_param.client_ip, client_param.backend_ip, client_param.backend_port);
-                    }
-                    catch(string* e)
-                    {
-                        fprintf(stderr, "%s\n", e->c_str());
-                        delete e;
-                        
-                        try {/* try connect 2nd backend */
-                            pSession = new Session(m_epoll_fd, clt_sockfd, client_param.client_ip, client_param.backup_backend_ip1, client_param.backup_backend_port1);
-                        }
-                        catch(string* e)
-                        {
-                            fprintf(stderr, "%s\n", e->c_str());
-                            delete e;
-                            
-                            try { /* try connect 3nd backend */
-                                pSession = new Session(m_epoll_fd, clt_sockfd, client_param.client_ip, client_param.backup_backend_ip2, client_param.backup_backend_port2);
-                            }
-                            catch(string* e)
-                            {
-                                fprintf(stderr, "%s\n", e->c_str());
-                                delete e;
-                            }
-                        }
-                    }
-                    
+                    BOOL isConnected = FALSE;
+                    Session * pSession = new Session(m_epoll_fd, clt_sockfd, client_param.client_ip);                    
                     if(pSession)
                     {
-                        AppendClient(pSession);
-						AppendBackend(pSession);
+                        for(int t = 0; t < 3; t++)
+                        {
+                           if(pSession->connect_backend(client_param.backend_ip[t], client_param.backend_port[t]))
+                           {
+                               AppendClient(pSession);
+                               AppendBackend(pSession);
+                               isConnected = TRUE;
+                               break;
+                           }
+                        }
+                        
+                        if(!isConnected)
+                            pSession->release();
                     }
                 }
             }
@@ -389,8 +367,10 @@ void Worker::Working()
                     {
                         Session* pSession = m_backend_list[events[i].data.fd];
 						
-						if(pSession)
+						if(pSession && !pSession->is_backend_sockfd_established())
+                        {
                             pSession->set_backend_sockfd_established();
+                        }
 						
                         if(pSession && pSession->send_to_backend() < 0)
                         {
@@ -1067,14 +1047,8 @@ int Service::Run(int fd)
                     
                     string client_ip;
                     
-                    string backend_ip;
-                    unsigned short backend_port;
-                    
-                    string backup_backend_ip1;
-                    unsigned short backup_backend_port1;
-                    
-                    string backup_backend_ip2;
-                    unsigned short backup_backend_port2;
+                    string backend_ip1, backend_ip2, backend_ip3;
+                    unsigned short backend_port1, backend_port2, backend_port3;
                     
                     unsigned int ip_lowbytes;
                     if(create_client_socket(sz_gate, clt_sockfd, false, clt_addr, clt_size, client_ip, ip_lowbytes) < 0)
@@ -1091,21 +1065,21 @@ int Service::Run(int fd)
                         continue;
                     }
                     
-                    unsigned int backend_host_index = 0;
-                    unsigned int backup_backend_host_index1 = 0;
-                    unsigned int backup_backend_host_index2 = 0;
+                    unsigned int backend_host_index1 = 0;
+                    unsigned int backend_host_index2 = 0;
+                    unsigned int backend_host_index3 = 0;
                     
                     if(bwgate_base::m_instance_balance_scheme[0] == 'R')
                     {
                         if(backend_host_group->second.curr_weight == 0)
                         {
-                            backend_host_group->second.curr_weight = backend_host_group->second.backends[backend_host_index].weight;
+                            backend_host_group->second.curr_weight = backend_host_group->second.backends[backend_host_index1].weight;
                         }
                         
-                        backend_host_index = backend_host_group->second.next_one % backend_host_group->second.backends.size();
+                        backend_host_index1 = backend_host_group->second.next_one % backend_host_group->second.backends.size();
                         
-                        backup_backend_host_index1 = (backend_host_index + 1) % backend_host_group->second.backends.size();
-                        backup_backend_host_index2 = (backend_host_index + 2) % backend_host_group->second.backends.size();
+                        backend_host_index2 = (backend_host_index1 + 1) % backend_host_group->second.backends.size();
+                        backend_host_index3 = (backend_host_index1 + 2) % backend_host_group->second.backends.size();
                         
                         backend_host_group->second.curr_weight--;
                         
@@ -1119,23 +1093,23 @@ int Service::Run(int fd)
                     }
                     else
                     {
-                        backend_host_index = ip_lowbytes % backend_host_group->second.backends.size();
-                        backup_backend_host_index1 = (ip_lowbytes + 1) % backend_host_group->second.backends.size();
-                        backup_backend_host_index2 = (ip_lowbytes + 2) % backend_host_group->second.backends.size();
+                        backend_host_index1 = ip_lowbytes % backend_host_group->second.backends.size();
+                        backend_host_index2 = (ip_lowbytes + 1) % backend_host_group->second.backends.size();
+                        backend_host_index3 = (ip_lowbytes + 2) % backend_host_group->second.backends.size();
                         
                         m_next_process = ip_lowbytes;
                     }
                     
                     m_next_process = m_next_process % m_work_processes.size();
                     
-                    backend_ip = backend_host_group->second.backends[backend_host_index].ip;
-                    backend_port = backend_host_group->second.backends[backend_host_index].port;
+                    backend_ip1 = backend_host_group->second.backends[backend_host_index1].ip;
+                    backend_port1 = backend_host_group->second.backends[backend_host_index1].port;
                     
-                    backup_backend_ip1 = backend_host_group->second.backends[backup_backend_host_index1].ip;
-                    backup_backend_port1 = backend_host_group->second.backends[backup_backend_host_index1].port;
+                    backend_ip2 = backend_host_group->second.backends[backend_host_index2].ip;
+                    backend_port2 = backend_host_group->second.backends[backend_host_index2].port;
                     
-                    backup_backend_ip2 = backend_host_group->second.backends[backup_backend_host_index2].ip;
-                    backup_backend_port2 = backend_host_group->second.backends[backup_backend_host_index2].port;
+                    backend_ip3 = backend_host_group->second.backends[backend_host_index3].ip;
+                    backend_port3 = backend_host_group->second.backends[backend_host_index3].port;
                         
                     char pid_file[1024];
                     sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid", m_service_name.c_str(), m_next_process);
@@ -1207,17 +1181,17 @@ int Service::Run(int fd)
                     strncpy(client_param.client_ip, client_ip.c_str(), 127);
                     client_param.client_ip[127] = '\0';
                     
-                    strncpy(client_param.backend_ip, backend_ip.c_str(), 127);
-                    client_param.backend_ip[127] = '\0';
-                    client_param.backend_port = backend_port;
+                    strncpy(client_param.backend_ip[0], backend_ip1.c_str(), 127);
+                    client_param.backend_ip[0][127] = '\0';
+                    client_param.backend_port[0] = backend_port1;
                     
-                    strncpy(client_param.backup_backend_ip1, backup_backend_ip1.c_str(), 127);
-                    client_param.backup_backend_ip1[127] = '\0';
-                    client_param.backup_backend_port1 = backup_backend_port1;
+                    strncpy(client_param.backend_ip[1], backend_ip2.c_str(), 127);
+                    client_param.backend_ip[1][127] = '\0';
+                    client_param.backend_port[1] = backend_port2;
                     
-                    strncpy(client_param.backup_backend_ip2, backup_backend_ip2.c_str(), 127);
-                    client_param.backup_backend_ip2[127] = '\0';
-                    client_param.backup_backend_port2 = backup_backend_port2;              
+                    strncpy(client_param.backend_ip[2], backend_ip3.c_str(), 127);
+                    client_param.backend_ip[2][127] = '\0';
+                    client_param.backend_port[2] = backend_port3;              
 
                     client_param.ctrl = SessionParamData;
                     if(m_work_processes[m_next_process].sockfds[0] > 0)

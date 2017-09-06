@@ -14,7 +14,7 @@ void close_sockfd(int& sockfd)
     }
 }
 
-Session::Session(int epoll_fd, int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port)
+Session::Session(int epoll_fd, int sockfd, const char* clientip)
 {
 	m_epoll_fd = epoll_fd;
     m_client_bufs.clear();
@@ -25,71 +25,6 @@ Session::Session(int epoll_fd, int sockfd, const char* clientip, const char* bac
     
     m_backend_sockfd = -1;
     m_backend_sockfd_established = FALSE;
-    struct addrinfo hints;      
-    struct addrinfo *servinfo, *curr;  
-    struct sockaddr_in *sa;
-    struct sockaddr_in6 *sa6;
-    
-	int res; 
-	
-	/* struct addrinfo hints; */
-    struct addrinfo *server_addr, *rp;
-    
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
-    hints.ai_socktype = SOCK_STREAM; /* Datagram socket */
-    hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
-    hints.ai_protocol = 0;          /* Any protocol */
-    hints.ai_canonname = NULL;
-    hints.ai_addr = NULL;
-    hints.ai_next = NULL;
-    
-    char szPort[32];
-    sprintf(szPort, "%u", backhost_port);
-    if (getaddrinfo((backhost_ip && backhost_ip[0] != '\0') ? backhost_ip : NULL, szPort, &hints, &server_addr) != 0)
-    {
-       
-        string strError = backhost_ip;
-        strError += ":";
-        strError += szPort;
-        strError += " ";
-        strError += strerror(errno);
-        
-        throw(new string(strError));
-        return;
-    }
-    
-    BOOL connected = FALSE;
-    for (rp = server_addr; rp != NULL; rp = rp->ai_next)
-    {
-        m_backend_sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-        if (m_backend_sockfd == -1)
-            continue;
-       
-	    int flags = fcntl(m_backend_sockfd, F_GETFL, 0); 
-	    fcntl(m_backend_sockfd, F_SETFL, flags | O_NONBLOCK);
-	
-        int s = connect(m_backend_sockfd, rp->ai_addr, rp->ai_addrlen);
-        if(s == 0 || (s == -1 && errno == EINPROGRESS))
-        {
-            connected = TRUE;
-            break;
-        }
-    }
-
-    freeaddrinfo(server_addr);           /* No longer needed */
-    if(!connected)
-    {
-        string strError = backhost_ip;
-        strError += ":";
-        strError += szPort;
-        strError += " ";
-        strError += strerror(errno);
-
-        throw(new string(strError));
-        return;
-    }
-    
 }
 
 Session::~Session()
@@ -126,6 +61,152 @@ Session::~Session()
     }
 }
 
+BOOL Session::connect_backend(const char* backhost_ip, unsigned short backhost_port)
+{
+    struct addrinfo hints;      
+    struct addrinfo *servinfo, *curr;  
+    struct sockaddr_in *sa;
+    struct sockaddr_in6 *sa6;
+    
+	int res; 
+	
+	/* struct addrinfo hints; */
+    struct addrinfo *server_addr, *rp;
+    
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+    hints.ai_socktype = SOCK_STREAM; /* Datagram socket */
+    hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
+    hints.ai_protocol = 0;          /* Any protocol */
+    hints.ai_canonname = NULL;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+    
+    char szPort[32];
+    sprintf(szPort, "%u", backhost_port);
+    if (getaddrinfo((backhost_ip && backhost_ip[0] != '\0') ? backhost_ip : NULL, szPort, &hints, &server_addr) != 0)
+    {
+       
+        string strError = backhost_ip;
+        strError += ":";
+        strError += szPort;
+        strError += " ";
+        strError += strerror(errno);
+        
+        fprintf(stderr, "%s\n", strError.c_str());
+        return FALSE;
+    }
+    
+    BOOL connected = FALSE;
+    for (rp = server_addr; rp != NULL; rp = rp->ai_next)
+    {
+        m_backend_sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (m_backend_sockfd == -1)
+            continue;
+       
+	    int flags = fcntl(m_backend_sockfd, F_GETFL, 0); 
+	    fcntl(m_backend_sockfd, F_SETFL, flags | O_NONBLOCK);
+	
+        int s = connect(m_backend_sockfd, rp->ai_addr, rp->ai_addrlen);
+        if(s == 0 || (s == -1 && errno == EINPROGRESS))
+        {
+            connected = TRUE;
+            break;
+        }
+    }
+
+    freeaddrinfo(server_addr);           /* No longer needed */
+    
+    if(!connected)
+    {
+        string strError = backhost_ip;
+        strError += ":";
+        strError += szPort;
+        strError += " ";
+        strError += strerror(errno);
+        
+        fprintf(stderr, "%s\n", strError.c_str());
+        return FALSE;
+    }
+    
+    return TRUE;
+}
+
+void Session::append_client_buf(const char* buf, int len)
+{
+    if(len <= BUF_DESC_MAX_SIZE)
+    {
+        buf_desc * bd = new buf_desc;
+        bd->cur = 0;
+        bd->len = len;
+        memcpy(bd->buf, buf, len);
+        m_client_bufs.push_back(bd);
+    }
+    else
+    {
+        int have_pushed = 0;
+        while(have_pushed < len)
+        {
+            if((len - have_pushed) > BUF_DESC_MAX_SIZE)
+            {
+                buf_desc * bd = new buf_desc;
+                bd->cur = 0;
+                bd->len = BUF_DESC_MAX_SIZE;
+                memcpy(bd->buf, buf + have_pushed, BUF_DESC_MAX_SIZE);
+                m_client_bufs.push_back(bd);
+                have_pushed += BUF_DESC_MAX_SIZE;
+            }
+            else
+            {
+                buf_desc * bd = new buf_desc;
+                bd->cur = 0;
+                bd->len = len - have_pushed;
+                memcpy(bd->buf, buf, len - have_pushed);
+                m_client_bufs.push_back(bd);
+                have_pushed = len;
+                break;
+            }
+        }
+    }
+}
+
+void Session::append_backend_buf(const char* buf, int len)
+{
+    if(len <= BUF_DESC_MAX_SIZE)
+    {
+        buf_desc * bd = new buf_desc;
+        bd->cur = 0;
+        bd->len = len;
+        memcpy(bd->buf, buf, len);
+        m_backend_bufs.push_back(bd);
+    }
+    else
+    {
+        int have_pushed = 0;
+        while(have_pushed < len)
+        {
+            if((len - have_pushed) > BUF_DESC_MAX_SIZE)
+            {
+                buf_desc * bd = new buf_desc;
+                bd->cur = 0;
+                bd->len = BUF_DESC_MAX_SIZE;
+                memcpy(bd->buf, buf + have_pushed, BUF_DESC_MAX_SIZE);
+                m_backend_bufs.push_back(bd);
+                have_pushed += BUF_DESC_MAX_SIZE;
+            }
+            else
+            {
+                buf_desc * bd = new buf_desc;
+                bd->cur = 0;
+                bd->len = len - have_pushed;
+                memcpy(bd->buf, buf, len - have_pushed);
+                m_backend_bufs.push_back(bd);
+                have_pushed = len;
+                break;
+            }
+        }
+    }
+}
 int Session::recv_from_client()
 {
     if(m_client_bufs.size() < 10)

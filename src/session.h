@@ -55,11 +55,14 @@ protected:
     virtual ~Session();
     
 public:
-	Session(int epoll_fd, int sockfd, const char* clientip, const char* backhost_ip, unsigned short backhost_port);
+	Session(int epoll_fd, int sockfd, const char* clientip);
     int get_backend_sockfd() { return m_backend_sockfd; }
     int get_client_sockfd() { return m_client_sockfd; }
     
     void set_backend_sockfd_established() { m_backend_sockfd_established = TRUE; }
+    BOOL is_backend_sockfd_established() { return m_backend_sockfd_established; }
+    
+    BOOL connect_backend(const char* backhost_ip, unsigned short backhost_port);
     
     int recv_from_client();
     int recv_from_backend();
