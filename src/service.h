@@ -54,6 +54,7 @@ static bool lock_pid_file(const char* pflag)
 	{   
 		if((errno == EACCES) || (errno == EAGAIN))
 		{   
+            close(fd);  
 		    return false;   
 		}
 		else
@@ -108,6 +109,7 @@ static bool check_pid_file(const char* pflag)
 	{   
 		if((errno == EACCES) || (errno == EAGAIN))
 		{   
+            close(fd);
 		    return false;   
 		}
 		else
