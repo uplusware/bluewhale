@@ -1194,9 +1194,27 @@ int Service::Run(int fd)
                     client_param.backend_port[2] = backend_port3;              
 
                     client_param.ctrl = SessionParamData;
-                    if(m_work_processes[m_next_process].sockfds[0] > 0)
+                    for(int t = 0; t < m_work_processes.size(); t++)
                     {
-                        send_sockfd(m_work_processes[m_next_process].sockfds[0], clt_sockfd, &client_param);
+                        if(m_work_processes[m_next_process].sockfds[0] > 0)
+                        {
+                            if(send_sockfd(m_work_processes[m_next_process].sockfds[0], clt_sockfd, &client_param) < 0)
+                            {
+                                printf("fail to sent fd\n");
+                                usleep(100);
+                                m_next_process++;
+                                m_next_process = m_next_process%m_work_processes.size();
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            m_next_process++;
+                            m_next_process = m_next_process%m_work_processes.size();
+                        }
                     }
                     close_fd(clt_sockfd); //have been send out to another process, so close it in the current process.
                 }   

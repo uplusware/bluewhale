@@ -231,7 +231,9 @@ int Session::recv_from_client()
                         }
                         else
                         {
-                            close_sockfd(m_client_sockfd);
+                            shutdown(m_client_sockfd, SHUT_RD);
+                            shutdown(m_backend_sockfd, SHUT_WR);
+
                             return -1;
                         }
                     }
@@ -256,7 +258,8 @@ int Session::recv_from_client()
                     continue;
                 }
                 delete bd;
-                close_sockfd(m_client_sockfd);
+                shutdown(m_client_sockfd, SHUT_RD);
+                shutdown(m_backend_sockfd, SHUT_WR);
                 return -1;
             }
         }while(0);
@@ -289,7 +292,8 @@ int Session::recv_from_backend()
                         {
                             continue;
                         }
-                        close_sockfd(m_backend_sockfd);
+                        shutdown(m_backend_sockfd, SHUT_RD);
+                        shutdown(m_client_sockfd, SHUT_WR);
                         return -1;
                     }
                 } while(0);
@@ -313,7 +317,8 @@ int Session::recv_from_backend()
                     continue;
                 }
                 delete bd;
-                close_sockfd(m_backend_sockfd);
+                shutdown(m_backend_sockfd, SHUT_RD);
+                shutdown(m_client_sockfd, SHUT_WR);
                 return -1;
             }
         }while(0);
@@ -362,7 +367,8 @@ int Session::send_to_client()
                 {
                     continue;
                 }
-                close_sockfd(m_client_sockfd);
+                shutdown(m_backend_sockfd, SHUT_RD);
+                shutdown(m_client_sockfd, SHUT_WR);
                 return -1;
             }
         }while(0);
@@ -376,7 +382,8 @@ int Session::send_to_client()
         
         if(m_backend_sockfd == -1)
         {
-            close_sockfd(m_client_sockfd);
+            shutdown(m_backend_sockfd, SHUT_RD);
+            shutdown(m_client_sockfd, SHUT_WR);
             return -1;
         }
     }
@@ -428,7 +435,8 @@ int Session::send_to_backend()
                 {
                     continue;
                 }
-                close_sockfd(m_backend_sockfd);
+                shutdown(m_client_sockfd, SHUT_RD);
+                shutdown(m_backend_sockfd, SHUT_WR);
                 return -1;
             }
         }while(0);
@@ -442,7 +450,8 @@ int Session::send_to_backend()
             
         if(m_client_sockfd == -1)
         {
-            close_sockfd(m_backend_sockfd);
+            shutdown(m_client_sockfd, SHUT_RD);
+            shutdown(m_backend_sockfd, SHUT_WR);
             return -1;
         }
     }

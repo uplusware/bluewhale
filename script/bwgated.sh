@@ -29,7 +29,6 @@ bwgated_start()
 bwgated_stop()
 {
 	/usr/bin/bwgated stop
-	sleep 3
 }
 
 bwgated_status()
@@ -65,6 +64,7 @@ bwgated_version()
 bwgated_restart()
 {
 	bwgated_stop
+    sleep 1
 	bwgated_start
 }
 
