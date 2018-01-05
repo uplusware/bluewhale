@@ -422,6 +422,7 @@ void Worker::Working()
 		
 	}
     delete[] events;
+    close(m_epoll_fd);
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -811,6 +812,8 @@ int Service::Run(int fd)
 	
 	BOOL svr_exit = FALSE;
     
+    int NUM_PROCS = sysconf(_SC_NPROCESSORS_CONF);
+    
     int nFlag;  
     for(int i = 0; i < bwgate_base::m_max_instance_num; i++)
 	{
@@ -838,6 +841,11 @@ int Service::Run(int fd)
             int work_pid = fork();
             if(work_pid == 0)
             {
+                cpu_set_t my_set;        /* Define your cpu_set bit mask. */
+                CPU_ZERO(&my_set);       /* Initialize it all to 0, i.e. no CPUs selected. */
+                CPU_SET(i%NUM_PROCS, &my_set);
+                sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
+                                                  
                 if(lock_pid_file(pid_file) == false)
                 {
                     exit(-1);
