@@ -74,45 +74,49 @@ BOOL bwgate_base::LoadConfig()
 			
 		if(strncasecmp(strline.c_str(), "#", sizeof("#") - 1) != 0)
 		{	
-			if(strncasecmp(strline.c_str(), "CloseStderr", sizeof("CloseStderr") - 1) == 0)
+            string strKey;
+            strcut(strline.c_str(), NULL, "=", strKey);
+            strtrim(strKey);
+            
+			if(strcasecmp(strKey.c_str(), "CloseStderr") == 0)
 			{
 				string close_stderr;
 				strcut(strline.c_str(), "=", NULL, close_stderr );
 				strtrim(close_stderr);
 				m_close_stderr = (strcasecmp(close_stderr.c_str(), "yes")) == 0 ? TRUE : FALSE;
 			}
-            else if(strncasecmp(strline.c_str(), "LocalHostName", sizeof("LocalHostName") - 1) == 0)
+            else if(strcasecmp(strKey.c_str(), "LocalHostName") == 0)
 			{
 				strcut(strline.c_str(), "=", NULL, m_localhostname );
 				strtrim(m_localhostname);
 			}
-			else if(strncasecmp(strline.c_str(), "HostIP", sizeof("HostIP") - 1) == 0)
+			else if(strcasecmp(strKey.c_str(), "HostIP") == 0)
 			{
 				strcut(strline.c_str(), "=", NULL, m_hostip );
 				strtrim(m_hostip);
 			}
-            else if(strncasecmp(strline.c_str(), "InstanceMaxCocurrentConNum", sizeof("InstanceMaxCocurrentConNum") - 1) == 0)
+            else if(strcasecmp(strKey.c_str(), "InstanceMaxCocurrentConNum") == 0)
 			{
                 string concurrent_conn;
 				strcut(strline.c_str(), "=", NULL, concurrent_conn );
 				strtrim(concurrent_conn);
                 m_instance_max_concurrent_conn = atoi(concurrent_conn.c_str());
 			}
-            else if(strncasecmp(strline.c_str(), "MaxInstanceNum", sizeof("MaxInstanceNum") - 1) == 0)
+            else if(strcasecmp(strKey.c_str(), "MaxInstanceNum") == 0)
 			{
                 string max_instance_num;
 				strcut(strline.c_str(), "=", NULL, max_instance_num );
 				strtrim(max_instance_num);
                 m_max_instance_num = atoi(max_instance_num.c_str());
 			}
-            else if(strncasecmp(strline.c_str(), "InstancePrestart", sizeof("InstancePrestart") - 1) == 0)
+            else if(strcasecmp(strKey.c_str(), "InstancePrestart") == 0)
 			{
 				string instance_prestart;
 				strcut(strline.c_str(), "=", NULL, instance_prestart );
 				strtrim(instance_prestart);
 				m_instance_prestart = (strcasecmp(instance_prestart.c_str(), "yes")) == 0 ? TRUE : FALSE;
 			}
-            else if(strncasecmp(strline.c_str(), "InstanceBalanceScheme", sizeof("InstanceBalanceScheme") - 1) == 0)
+            else if(strcasecmp(strKey.c_str(), "InstanceBalanceScheme") == 0)
 			{
 				strcut(strline.c_str(), "=", NULL, m_instance_balance_scheme );
 				strtrim(m_instance_balance_scheme);
