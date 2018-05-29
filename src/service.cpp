@@ -43,6 +43,7 @@ typedef struct {
 	char client_ip[128];
     char backend_ip[3][128];
     unsigned short backend_port[3];
+    BOOL http_proxy;
 } CLIENT_PARAM;
 
 static int send_sockfd(int sfd, int fd_file, CLIENT_PARAM* param) 
@@ -291,7 +292,7 @@ void Worker::Working()
                     fcntl(clt_sockfd, F_SETFL, flags | O_NONBLOCK);
                     
                     BOOL isConnected = FALSE;
-                    Session * pSession = new Session(m_epoll_fd, clt_sockfd, client_param.client_ip);                    
+                    Session * pSession = new Session(m_epoll_fd, clt_sockfd, client_param.client_ip, client_param.http_proxy);                    
                     if(pSession)
                     {
                         for(int t = 0; t < 3; t++)
@@ -319,10 +320,7 @@ void Worker::Working()
                         Session* pSession = m_client_list[events[i].data.fd];
                         if(pSession && pSession->recv_from_client() < 0)
                         {
-                                struct epoll_event ev;
-                                ev.events = EPOLLIN;
-                                ev.data.fd = events[i].data.fd;
-                                epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                                epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
                                 
                                 m_client_list[events[i].data.fd] = NULL;
                                 
@@ -334,11 +332,7 @@ void Worker::Working()
                         Session* pSession = m_backend_list[events[i].data.fd];
                         if(pSession && pSession->recv_from_backend() < 0)
                         {
-                            
-                            struct epoll_event ev;
-                            ev.events = EPOLLIN;
-                            ev.data.fd = events[i].data.fd;
-                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
 
                             m_backend_list[events[i].data.fd] = NULL;
                             pSession->release(events[i].data.fd); //delete itself
@@ -353,10 +347,7 @@ void Worker::Working()
                         
                         if(pSession && pSession->send_to_client() < 0)
                         {
-                            struct epoll_event ev;
-                            ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;
-                            ev.data.fd = events[i].data.fd;
-                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
                             
                             m_client_list[events[i].data.fd] = NULL;
                                 
@@ -374,10 +365,7 @@ void Worker::Working()
 						
                         if(pSession && pSession->send_to_backend() < 0)
                         {
-                            struct epoll_event ev;
-                            ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR;
-                            ev.data.fd = events[i].data.fd;
-                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
                             
                             m_backend_list[events[i].data.fd] = NULL;
                             pSession->release(events[i].data.fd); //delete itself
@@ -391,10 +379,7 @@ void Worker::Working()
                         Session* pSession = m_client_list[events[i].data.fd];
                         if(pSession)
                         {
-                            struct epoll_event ev;
-                            ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
-                            ev.data.fd = events[i].data.fd;
-                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
 
                             m_client_list[events[i].data.fd] = NULL;
                                 
@@ -406,10 +391,7 @@ void Worker::Working()
                         Session* pSession = m_backend_list[events[i].data.fd];
                         if(pSession)
                         {
-                            struct epoll_event ev;
-                            ev.events = EPOLLOUT | EPOLLIN | EPOLLHUP | EPOLLERR;
-                            ev.data.fd = events[i].data.fd;
-                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+                            epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
                             
                             m_backend_list[events[i].data.fd] = NULL;
                             
@@ -930,6 +912,11 @@ int Service::Run(int fd)
                     service_content->protocol = pChildNode->ToElement()->Attribute("protocol") ? pChildNode->ToElement()->Attribute("protocol") : "";
                     strtrim(service_content->protocol);
                     
+                    
+                    string str_http_proxy = pChildNode->ToElement()->Attribute("http_proxy") ? pChildNode->ToElement()->Attribute("http_proxy") : "";
+                    strtrim(str_http_proxy);
+                    service_content->http_proxy = strncasecmp(str_http_proxy.c_str(), "enable", 6) == 0 ? TRUE : FALSE;
+                    
                     service_content->sockfd = -1;
                     
                     create_server_socket(service_content->sockfd, service_content->ip.c_str(), service_content->port);
@@ -1065,60 +1052,77 @@ int Service::Run(int fd)
                         continue;
                     }
                     
-                    map<string, backends_info_t>::iterator backend_host_group = m_backend_host_list.find(sz_gate);
-    
-                    if(backend_host_group == m_backend_host_list.end() || backend_host_group->second.backends.size() == 0)
+                    if(m_service_list[events[i].data.fd]->http_proxy)
                     {
-                        close(clt_sockfd);
-                        continue;
-                    }
-                    
-                    unsigned int backend_host_index1 = 0;
-                    unsigned int backend_host_index2 = 0;
-                    unsigned int backend_host_index3 = 0;
-                    
-                    if(bwgate_base::m_instance_balance_scheme[0] == 'R')
-                    {
-                        if(backend_host_group->second.curr_weight == 0)
+                        if(bwgate_base::m_instance_balance_scheme[0] == 'R')
+                        {   
+                            m_next_process++;   
+                        }
+                        else
                         {
-                            backend_host_group->second.curr_weight = backend_host_group->second.backends[backend_host_index1].weight;
+                            m_next_process = ip_lowbytes;
                         }
                         
-                        backend_host_index1 = backend_host_group->second.next_one % backend_host_group->second.backends.size();
-                        
-                        backend_host_index2 = (backend_host_index1 + 1) % backend_host_group->second.backends.size();
-                        backend_host_index3 = (backend_host_index1 + 2) % backend_host_group->second.backends.size();
-                        
-                        backend_host_group->second.curr_weight--;
-                        
-                        if(backend_host_group->second.curr_weight == 0)
-                        {
-                            backend_host_group->second.next_one++;
-                        }
-                        
-                        m_next_process++;
-                        
+                        m_next_process = m_next_process % m_work_processes.size();
                     }
                     else
                     {
-                        backend_host_index1 = ip_lowbytes % backend_host_group->second.backends.size();
-                        backend_host_index2 = (ip_lowbytes + 1) % backend_host_group->second.backends.size();
-                        backend_host_index3 = (ip_lowbytes + 2) % backend_host_group->second.backends.size();
+                        map<string, backends_info_t>::iterator backend_host_group = m_backend_host_list.find(sz_gate);
+        
+                        if(backend_host_group == m_backend_host_list.end() || backend_host_group->second.backends.size() == 0)
+                        {
+                            close(clt_sockfd);
+                            continue;
+                        }
                         
-                        m_next_process = ip_lowbytes;
+                        unsigned int backend_host_index1 = 0;
+                        unsigned int backend_host_index2 = 0;
+                        unsigned int backend_host_index3 = 0;
+                        
+                        if(bwgate_base::m_instance_balance_scheme[0] == 'R')
+                        {
+                            if(backend_host_group->second.curr_weight == 0)
+                            {
+                                backend_host_group->second.curr_weight = backend_host_group->second.backends[backend_host_index1].weight;
+                            }
+                            
+                            backend_host_index1 = backend_host_group->second.next_one % backend_host_group->second.backends.size();
+                            
+                            backend_host_index2 = (backend_host_index1 + 1) % backend_host_group->second.backends.size();
+                            backend_host_index3 = (backend_host_index1 + 2) % backend_host_group->second.backends.size();
+                            
+                            backend_host_group->second.curr_weight--;
+                            
+                            if(backend_host_group->second.curr_weight == 0)
+                            {
+                                backend_host_group->second.next_one++;
+                            }
+                            
+                            m_next_process++;
+                            
+                        }
+                        else
+                        {
+                            backend_host_index1 = ip_lowbytes % backend_host_group->second.backends.size();
+                            backend_host_index2 = (ip_lowbytes + 1) % backend_host_group->second.backends.size();
+                            backend_host_index3 = (ip_lowbytes + 2) % backend_host_group->second.backends.size();
+                            
+                            m_next_process = ip_lowbytes;
+                        }
+                        
+                        m_next_process = m_next_process % m_work_processes.size();
+                        
+                        backend_ip1 = backend_host_group->second.backends[backend_host_index1].ip;
+                        backend_port1 = backend_host_group->second.backends[backend_host_index1].port;
+                        
+                        backend_ip2 = backend_host_group->second.backends[backend_host_index2].ip;
+                        backend_port2 = backend_host_group->second.backends[backend_host_index2].port;
+                        
+                        backend_ip3 = backend_host_group->second.backends[backend_host_index3].ip;
+                        backend_port3 = backend_host_group->second.backends[backend_host_index3].port;
                     }
                     
-                    m_next_process = m_next_process % m_work_processes.size();
                     
-                    backend_ip1 = backend_host_group->second.backends[backend_host_index1].ip;
-                    backend_port1 = backend_host_group->second.backends[backend_host_index1].port;
-                    
-                    backend_ip2 = backend_host_group->second.backends[backend_host_index2].ip;
-                    backend_port2 = backend_host_group->second.backends[backend_host_index2].port;
-                    
-                    backend_ip3 = backend_host_group->second.backends[backend_host_index3].ip;
-                    backend_port3 = backend_host_group->second.backends[backend_host_index3].port;
-                        
                     char pid_file[1024];
                     sprintf(pid_file, "/tmp/bwgated/%s_WORKER%d.pid", m_service_name.c_str(), m_next_process);
                     if(check_pid_file(pid_file) == true) /* The related process had crashed */
@@ -1200,8 +1204,11 @@ int Service::Run(int fd)
                     strncpy(client_param.backend_ip[2], backend_ip3.c_str(), 127);
                     client_param.backend_ip[2][127] = '\0';
                     client_param.backend_port[2] = backend_port3;              
-
+                    
+                    client_param.http_proxy = m_service_list[events[i].data.fd]->http_proxy;
+                    
                     client_param.ctrl = SessionParamData;
+                    
                     for(int t = 0; t < m_work_processes.size(); t++)
                     {
                         if(m_work_processes[m_next_process].sockfds[0] > 0)

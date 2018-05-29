@@ -14,7 +14,7 @@ void close_sockfd(int& sockfd)
     }
 }
 
-Session::Session(int epoll_fd, int sockfd, const char* clientip)
+Session::Session(int epoll_fd, int sockfd, const char* clientip, BOOL http_proxy)
 {
 	m_epoll_fd = epoll_fd;
     m_client_bufs.clear();
@@ -25,6 +25,7 @@ Session::Session(int epoll_fd, int sockfd, const char* clientip)
     
     m_backend_sockfd = -1;
     m_backend_sockfd_established = FALSE;
+    m_http_proxy = http_proxy;
 }
 
 Session::~Session()
@@ -223,6 +224,12 @@ int Session::recv_from_client()
                         bd->len += r;
                         return bd->len;
                     }
+                    else if(r == 0)
+                    {
+                        shutdown(m_backend_sockfd, SHUT_RD);
+                        shutdown(m_client_sockfd, SHUT_WR);
+                        return -1;
+                    }
                     else
                     {
                         if(errno == EAGAIN)
@@ -250,6 +257,13 @@ int Session::recv_from_client()
                 m_client_bufs.push_back(bd);
                 send_to_backend();
                 return bd->len;
+            }
+            else if(bd->len == 0)
+            {
+                delete bd;
+                shutdown(m_backend_sockfd, SHUT_RD);
+                shutdown(m_client_sockfd, SHUT_WR);
+                return -1;
             }
             else
             {
@@ -286,14 +300,22 @@ int Session::recv_from_backend()
                         bd->len += r;
                         return bd->len;
                     }
+                    else if(r == 0)
+                    {
+                        shutdown(m_backend_sockfd, SHUT_RD);
+                        shutdown(m_client_sockfd, SHUT_WR);
+                        return -1;
+                    }
                     else
                     {
                         if(errno == EAGAIN)
                         {
                             continue;
                         }
+                        
                         shutdown(m_backend_sockfd, SHUT_RD);
                         shutdown(m_client_sockfd, SHUT_WR);
+                        
                         return -1;
                     }
                 } while(0);
@@ -309,6 +331,13 @@ int Session::recv_from_backend()
                 m_backend_bufs.push_back(bd);
                 send_to_client();
                 return bd->len;
+            }
+            else if(bd->len == 0)
+            {
+                delete bd;
+                shutdown(m_backend_sockfd, SHUT_RD);
+                shutdown(m_client_sockfd, SHUT_WR);
+                return -1;
             }
             else
             {
@@ -360,6 +389,12 @@ int Session::send_to_client()
                     epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, m_client_sockfd, &ev);
                 }
                 return s;
+            }
+            else if(s == 0)
+            {
+                shutdown(m_client_sockfd, SHUT_RD);
+                shutdown(m_backend_sockfd, SHUT_WR);
+                return -1;
             }
             else
             {
@@ -428,6 +463,12 @@ int Session::send_to_backend()
                 }
                     
                 return s;
+            }
+            else if(s == 0)
+            {
+                shutdown(m_client_sockfd, SHUT_RD);
+                shutdown(m_backend_sockfd, SHUT_WR);
+                return -1;
             }
             else
             {

@@ -159,7 +159,7 @@ typedef struct {
     unsigned short port;
     BOOL is_ssl;
     string protocol;
-    
+    BOOL http_proxy;
     int sockfd;
 } service_content_t;
 

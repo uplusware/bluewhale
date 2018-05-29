@@ -51,11 +51,12 @@ protected:
     list<buf_desc*> m_backend_bufs;
     
     int m_use_count;
+    BOOL m_http_proxy;
     //this class only could be created in heap.    
     virtual ~Session();
     
 public:
-	Session(int epoll_fd, int sockfd, const char* clientip);
+	Session(int epoll_fd, int sockfd, const char* clientip, BOOL http_proxy);
     int get_backend_sockfd() { return m_backend_sockfd; }
     int get_client_sockfd() { return m_client_sockfd; }
     
