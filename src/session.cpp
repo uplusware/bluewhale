@@ -226,8 +226,9 @@ int Session::recv_from_client()
                     }
                     else if(r == 0)
                     {
-                        shutdown(m_backend_sockfd, SHUT_RD);
-                        shutdown(m_client_sockfd, SHUT_WR);
+                        shutdown(m_client_sockfd, SHUT_RD);
+                        shutdown(m_backend_sockfd, SHUT_WR);
+                        
                         return -1;
                     }
                     else
@@ -260,9 +261,9 @@ int Session::recv_from_client()
             }
             else if(bd->len == 0)
             {
-                delete bd;
-                shutdown(m_backend_sockfd, SHUT_RD);
-                shutdown(m_client_sockfd, SHUT_WR);
+                 delete bd;
+                shutdown(m_client_sockfd, SHUT_RD);
+                shutdown(m_backend_sockfd, SHUT_WR);
                 return -1;
             }
             else
@@ -392,8 +393,8 @@ int Session::send_to_client()
             }
             else if(s == 0)
             {
-                shutdown(m_client_sockfd, SHUT_RD);
-                shutdown(m_backend_sockfd, SHUT_WR);
+                shutdown(m_backend_sockfd, SHUT_RD);
+                shutdown(m_client_sockfd, SHUT_WR);
                 return -1;
             }
             else
