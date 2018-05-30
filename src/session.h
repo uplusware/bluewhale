@@ -85,12 +85,12 @@ public:
         {
             if(m_client_sockfd == sockfd)
             {
-                close(m_client_sockfd);
+                shutdown(m_client_sockfd, SHUT_RDWR);
                 m_client_sockfd = -1;
             }
             else if(m_backend_sockfd == sockfd)
             {
-                close(m_backend_sockfd);
+                shutdown(m_backend_sockfd, SHUT_RDWR);
                 m_backend_sockfd = -1;
             }
         }

@@ -5,15 +5,6 @@
 
 #include "session.h"
 
-void close_sockfd(int& sockfd)
-{
-    if(sockfd > 0)
-    {
-        close(sockfd);
-        /* printf("close fd: %d on %u\n", sockfd, getpid()); */
-    }
-}
-
 Session::Session(int epoll_fd, int sockfd, const char* clientip, BOOL http_proxy)
 {
 	m_epoll_fd = epoll_fd;
@@ -29,17 +20,7 @@ Session::Session(int epoll_fd, int sockfd, const char* clientip, BOOL http_proxy
 }
 
 Session::~Session()
-{
-    while(send_to_backend() > 0)
-    {
-        continue;
-    }
-    
-    while(send_to_client() > 0)
-    {
-        continue;
-    }
-    
+{    
     list<buf_desc*>::iterator itor;
     
     for(itor = m_client_bufs.begin(); itor != m_client_bufs.end(); ++itor)
@@ -54,11 +35,14 @@ Session::~Session()
     
     if(m_backend_sockfd > 0)
     {
-        close_sockfd(m_backend_sockfd);
+        shutdown(m_backend_sockfd, SHUT_RDWR);
+        m_backend_sockfd = -1;
     }
+    
     if(m_client_sockfd > 0)
     {
-        close_sockfd(m_client_sockfd);
+        shutdown(m_client_sockfd, SHUT_RDWR);
+        m_client_sockfd = -1;
     }
 }
 
@@ -221,29 +205,17 @@ int Session::recv_from_client()
                     int r = recv(m_client_sockfd, bd->buf + bd->len, BUF_DESC_MAX_SIZE - bd->len, 0);
                     if(r > 0)
                     {
+                        printf("%.*s", r, bd->buf + bd->len);
                         bd->len += r;
                         return bd->len;
                     }
-                    else if(r == 0)
+                    else if(r == 0 || ( r < 0 && errno != EAGAIN))
                     {
-                        shutdown(m_client_sockfd, SHUT_RD);
+                        shutdown(m_client_sockfd, SHUT_RDWR);
+                        m_client_sockfd = -1;
                         shutdown(m_backend_sockfd, SHUT_WR);
                         
                         return -1;
-                    }
-                    else
-                    {
-                        if(errno == EAGAIN)
-                        {
-                            continue;
-                        }
-                        else
-                        {
-                            shutdown(m_client_sockfd, SHUT_RD);
-                            shutdown(m_backend_sockfd, SHUT_WR);
-
-                            return -1;
-                        }
                     }
                 }
             }while(0);
@@ -259,21 +231,11 @@ int Session::recv_from_client()
                 send_to_backend();
                 return bd->len;
             }
-            else if(bd->len == 0)
+            else if(bd->len == 0 || (bd->len < 0 && errno != EAGAIN))
             {
-                 delete bd;
-                shutdown(m_client_sockfd, SHUT_RD);
-                shutdown(m_backend_sockfd, SHUT_WR);
-                return -1;
-            }
-            else
-            {
-                if(errno == EAGAIN)
-                {
-                    continue;
-                }
                 delete bd;
-                shutdown(m_client_sockfd, SHUT_RD);
+                shutdown(m_client_sockfd, SHUT_RDWR);
+                m_client_sockfd = -1;
                 shutdown(m_backend_sockfd, SHUT_WR);
                 return -1;
             }
@@ -301,22 +263,11 @@ int Session::recv_from_backend()
                         bd->len += r;
                         return bd->len;
                     }
-                    else if(r == 0)
+                    else if(r == 0 || (r < 0 && errno != EAGAIN))
                     {
-                        shutdown(m_backend_sockfd, SHUT_RD);
+                        shutdown(m_backend_sockfd, SHUT_RDWR);
+                        m_backend_sockfd = -1;
                         shutdown(m_client_sockfd, SHUT_WR);
-                        return -1;
-                    }
-                    else
-                    {
-                        if(errno == EAGAIN)
-                        {
-                            continue;
-                        }
-                        
-                        shutdown(m_backend_sockfd, SHUT_RD);
-                        shutdown(m_client_sockfd, SHUT_WR);
-                        
                         return -1;
                     }
                 } while(0);
@@ -333,22 +284,14 @@ int Session::recv_from_backend()
                 send_to_client();
                 return bd->len;
             }
-            else if(bd->len == 0)
+            else if(bd->len == 0 || ( bd->len < 0 && errno != EAGAIN))
             {
                 delete bd;
-                shutdown(m_backend_sockfd, SHUT_RD);
+                
+                shutdown(m_backend_sockfd, SHUT_RDWR);
+                m_backend_sockfd = -1;
                 shutdown(m_client_sockfd, SHUT_WR);
-                return -1;
-            }
-            else
-            {
-                if(errno == EAGAIN)
-                {
-                    continue;
-                }
-                delete bd;
-                shutdown(m_backend_sockfd, SHUT_RD);
-                shutdown(m_client_sockfd, SHUT_WR);
+                
                 return -1;
             }
         }while(0);
@@ -391,20 +334,11 @@ int Session::send_to_client()
                 }
                 return s;
             }
-            else if(s == 0)
+            else if(s == 0 || (s < 0 && errno != EAGAIN))
             {
                 shutdown(m_backend_sockfd, SHUT_RD);
-                shutdown(m_client_sockfd, SHUT_WR);
-                return -1;
-            }
-            else
-            {
-                if(errno == EAGAIN)
-                {
-                    continue;
-                }
-                shutdown(m_backend_sockfd, SHUT_RD);
-                shutdown(m_client_sockfd, SHUT_WR);
+                shutdown(m_client_sockfd, SHUT_RDWR);
+                m_client_sockfd = -1;
                 return -1;
             }
         }while(0);
@@ -416,9 +350,8 @@ int Session::send_to_client()
         ev.data.fd = m_client_sockfd;
         epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, m_client_sockfd, &ev);
         
-        if(m_backend_sockfd == -1)
+        if(m_backend_sockfd == -1) //client is close and no data to send for backend.
         {
-            shutdown(m_backend_sockfd, SHUT_RD);
             shutdown(m_client_sockfd, SHUT_WR);
             return -1;
         }
@@ -465,20 +398,11 @@ int Session::send_to_backend()
                     
                 return s;
             }
-            else if(s == 0)
+            else if(s == 0 || (s < 0 && errno != EAGAIN))
             {
                 shutdown(m_client_sockfd, SHUT_RD);
-                shutdown(m_backend_sockfd, SHUT_WR);
-                return -1;
-            }
-            else
-            {
-                if(errno == EAGAIN)
-                {
-                    continue;
-                }
-                shutdown(m_client_sockfd, SHUT_RD);
-                shutdown(m_backend_sockfd, SHUT_WR);
+                shutdown(m_backend_sockfd, SHUT_RDWR);
+                m_backend_sockfd = -1;
                 return -1;
             }
         }while(0);
@@ -490,9 +414,8 @@ int Session::send_to_backend()
         ev.data.fd = m_backend_sockfd;
         epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, m_backend_sockfd, &ev);
             
-        if(m_client_sockfd == -1)
+        if(m_client_sockfd == -1) //client is close and no data to send for backend.
         {
-            shutdown(m_client_sockfd, SHUT_RD);
             shutdown(m_backend_sockfd, SHUT_WR);
             return -1;
         }
