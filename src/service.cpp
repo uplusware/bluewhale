@@ -556,51 +556,76 @@ void Service::AppendReject(const char* data)
 
 int Service::create_server_socket(int& sockfd, const char* hostip, unsigned short port)
 {
-    int nFlag;
-    struct addrinfo hints;
-    struct addrinfo *server_addr, *rp;
-    
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
-    hints.ai_socktype = SOCK_STREAM; /* Datagram socket */
-    hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
-    hints.ai_protocol = 0;          /* Any protocol */
-    hints.ai_canonname = NULL;
-    hints.ai_addr = NULL;
-    hints.ai_next = NULL;
-    
-    char szPort[32];
-    sprintf(szPort, "%u", port);
-
-    int s = getaddrinfo((hostip && hostip[0] != '\0') ? hostip : NULL, szPort, &hints, &server_addr);
-    if (s != 0)
+    int nFlag = 0;
+    if(!hostip || hostip[0] == '\0')
     {
-       fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
-       return -1;
+        sockaddr_in6 svr_addr6;
+        sockfd = socket(AF_INET6, SOCK_STREAM, 0);
+        if (sockfd == -1)
+            return sockfd;
+        memset(&svr_addr6, 0, sizeof(sockaddr_in6));
+        svr_addr6.sin6_family = AF_INET6;
+        svr_addr6.sin6_port = htons(port);
+        svr_addr6.sin6_addr = in6addr_any;
+        
+        nFlag = 1;
+        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char*)&nFlag, sizeof(nFlag));
+        
+        nFlag = 0;
+        setsockopt(sockfd, SOL_SOCKET, IPV6_V6ONLY, (char*)&nFlag, sizeof(nFlag));
+        
+        if(bind(sockfd, (sockaddr*)&svr_addr6, sizeof(sockaddr_in6)) != 0)
+        {
+            sockfd = -1;
+            return sockfd;
+        }
     }
-    
-    for (rp = server_addr; rp != NULL; rp = rp->ai_next)
+    else
     {
-       sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-       if (sockfd == -1)
+        struct addrinfo hints;
+        struct addrinfo *server_addr, *rp;
+        
+        memset(&hints, 0, sizeof(struct addrinfo));
+        hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+        hints.ai_socktype = SOCK_STREAM; /* Datagram socket */
+        hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
+        hints.ai_protocol = 0;          /* Any protocol */
+        hints.ai_canonname = NULL;
+        hints.ai_addr = NULL;
+        hints.ai_next = NULL;
+        
+        char szPort[32];
+        sprintf(szPort, "%u", port);
+
+        int s = getaddrinfo((hostip && hostip[0] != '\0') ? hostip : NULL, szPort, &hints, &server_addr);
+        if (s != 0)
+        {
+           fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
            return -1;
-       
-       nFlag = 1;
-       setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char*)&nFlag, sizeof(nFlag));
-    
-       if (bind(sockfd, rp->ai_addr, rp->ai_addrlen) == 0)
-           break;                  /* Success */
-       fprintf(stderr, "%s %u# bind: %s\n", __FILE__, __LINE__, strerror(errno));
-       close_fd(sockfd);
-    }
-    
-    if (rp == NULL)
-    {               /* No address succeeded */
-          return -1;
-    }
+        }
+        
+        for (rp = server_addr; rp != NULL; rp = rp->ai_next)
+        {
+           sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+           if (sockfd == -1)
+               return -1;
+           
+           nFlag = 1;
+           setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char*)&nFlag, sizeof(nFlag));
+        
+           if (bind(sockfd, rp->ai_addr, rp->ai_addrlen) == 0)
+               break;                  /* Success */
+           fprintf(stderr, "%s %u# bind: %s\n", __FILE__, __LINE__, strerror(errno));
+           close_fd(sockfd);
+        }
+        
+        if (rp == NULL)
+        {               /* No address succeeded */
+              return -1;
+        }
 
-    freeaddrinfo(server_addr);           /* No longer needed */
-    
+        freeaddrinfo(server_addr);           /* No longer needed */
+    }
     nFlag = fcntl(sockfd, F_GETFL, 0);
     fcntl(sockfd, F_SETFL, nFlag|O_NONBLOCK);
     
