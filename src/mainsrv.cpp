@@ -114,6 +114,7 @@ static int Stop()
 	
 	Service gate_srv(stGATE);
 	gate_srv.Stop();	
+    return 0;
 }
 
 static void Version()
@@ -127,6 +128,7 @@ static int Reload()
 
 	Service gate_srv(stGATE);
 	gate_srv.ReloadConfig();
+    return 0;
 }
 
 static int ReloadAccess()
@@ -135,6 +137,7 @@ static int ReloadAccess()
 
 	Service gate_srv(stGATE);
 	gate_srv.ReloadAccess();
+    return 0;
 }
 
 static int AppendReject(const char* data)
@@ -143,6 +146,7 @@ static int AppendReject(const char* data)
 
 	Service gate_srv(stGATE);
 	gate_srv.AppendReject(data);
+    return 0;
 }
 
 static int processcmd(const char* cmd, const char* conf, const char* permit, const char* reject, const char* data)

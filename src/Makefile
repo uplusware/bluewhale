@@ -13,7 +13,7 @@ LDDIRS = -L.
 
 LDLIST_SVR = -lstdc++ -lrt -lpthread
 
-FLAGS = -O2 -fPIC -w
+FLAGS = -O2 -fPIC
 
 all: bwgd
 
