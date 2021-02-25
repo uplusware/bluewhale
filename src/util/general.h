@@ -50,7 +50,6 @@ typedef unsigned int DWORD;
 
 typedef void* HANDLE;
 
-#define MAX(a,b) ((a)>(b)?(a):(b))
 #define HICH(c) (( (c) >= 'a' )&&((c) <= 'z')) ? ((c)+'A'-'a'):(c)
 #define LOCH(c) (( (c) >= 'A' )&&((c) <= 'Z')) ? ((c)-'A'+'a'):(c)
 

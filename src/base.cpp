@@ -161,6 +161,7 @@ BOOL bwgate_base::LoadAccessList()
 		sem_post(plock);
 		sem_close(plock);
 	}
+    return TRUE;
 }
 
 void bwgate_base::_load_permit_()
