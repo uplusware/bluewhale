@@ -2,5 +2,5 @@
 
 # Bluewhale
 
-* Lightweight asynchronous transparent gate on application layer, reverse/HA proxy and load balancer.
+* Lightweight asynchronous transparent proxy on application layer, reverse/HA proxy and load balancer.
 * [Wiki](https://github.com/uplusware/bluewhale/wiki)
