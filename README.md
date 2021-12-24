@@ -7,4 +7,4 @@
 
 ### History
 
-This project was began in 2015, to support distributed mode for [erisemail](https://github.com/uplusware/erisemail) and [heaphttpd]https://github.com/uplusware/heaphttpd).
+This project was began in 2015, to support distributed mode for [erisemail](https://github.com/uplusware/erisemail) and [heaphttpd](https://github.com/uplusware/heaphttpd).
