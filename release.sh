@@ -4,7 +4,7 @@ if [ $# = 3 ]
 then
 	echo $1
 else
-	echo "release 0.1 rel-alias entos"
+	echo "release 0.2 beta centos8"
 	exit 1	
 fi
 
