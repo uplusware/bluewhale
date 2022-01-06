@@ -32,7 +32,6 @@ void close_fd(int fd)
 {
     if(fd > 0)
     {
-        /* printf("close fd: %d on %u\n", fd, getpid()); */
         close(fd);
     }
 }
